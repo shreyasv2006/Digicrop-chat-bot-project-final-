@@ -1,8 +1,6 @@
 {
   "version": 2,
-  "buildCommand": "npx expo export --platform web --output-dir dist",
   "outputDirectory": "dist",
-  "installCommand": "npm install",
   "functions": {
     "api/chat.js": {
       "maxDuration": 30
@@ -17,8 +15,12 @@
       "dest": "/api/$1"
     },
     {
-      "src": "/(.*)",
+      "src": "/(.*\\.(js|css|png|jpg|jpeg|gif|ico|svg|ttf|woff|woff2|json|txt|md))",
       "dest": "/$1"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
     }
   ]
 }

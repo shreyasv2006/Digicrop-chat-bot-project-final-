@@ -6,8 +6,7 @@
 # Dependencies
 node_modules/
 
-# Expo build output
-dist/
+# Expo dev logs only (keep dist/ for Vercel static serving)
 .expo/
 
 # OS files
