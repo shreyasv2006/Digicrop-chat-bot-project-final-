@@ -23,10 +23,10 @@ export default function Header({ theme, isDarkMode, toggleTheme, toggleSidebar, 
           </TouchableOpacity>
         )}
         <View style={styles.titleContainer}>
-          <Text style={[styles.title, { color: theme.text }]}>{title || 'AgriSense'}</Text>
+          <Text style={[styles.title, { color: theme.text }]}>{title || 'DigiCrop AI'}</Text>
           {isDesktop && (
             <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
-              Smart insights for better agricultural decisions
+              Grounded Agricultural Intelligence & Analytical Decision Support
             </Text>
           )}
         </View>
@@ -61,9 +61,13 @@ const styles = StyleSheet.create({
   leftSection: {
     flexDirection: 'row',
     alignItems: 'center',
+    flex: 1,
+    marginRight: SIZES.sm,
   },
   titleContainer: {
     justifyContent: 'center',
+    flex: 1,
+    flexShrink: 1,
   },
   title: {
     fontSize: 22,

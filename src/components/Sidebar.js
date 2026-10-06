@@ -27,7 +27,7 @@ export default function Sidebar({ theme, isDesktop, closeSidebar, currentScreen,
         <View style={[styles.logoIcon, { backgroundColor: theme.primary }]}>
           <Ionicons name="leaf" size={24} color="#FFF" />
         </View>
-        <Text style={[styles.logoText, { color: theme.text }]}>AgriSense</Text>
+        <Text style={[styles.logoText, { color: theme.text }]}>DigiCrop AI</Text>
         
         {!isDesktop && (
           <TouchableOpacity onPress={closeSidebar} style={styles.closeButton}>

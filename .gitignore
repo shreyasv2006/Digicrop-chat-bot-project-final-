@@ -1,0 +1,15 @@
+# Environment variables — NEVER commit these
+.env
+.env.local
+.env.*.local
+
+# Dependencies
+node_modules/
+
+# Expo build output
+dist/
+.expo/
+
+# OS files
+.DS_Store
+Thumbs.db

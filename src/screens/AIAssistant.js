@@ -3,7 +3,7 @@ import { View, StyleSheet, Platform, LayoutAnimation, UIManager } from 'react-na
 import WelcomeSection from '../components/WelcomeSection';
 import QuickActionCards from '../components/QuickActionCards';
 import ChatInterface from '../components/ChatInterface';
-import { PREDEFINED_RESPONSES } from '../constants/data';
+import { sendChatMessage } from '../services/apiService';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -12,52 +12,68 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 export default function AIAssistant({ theme, isDesktop }) {
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
+  const [selectedDatasetId, setSelectedDatasetId] = useState('general');
+  const [isLoading, setIsLoading] = useState(false);
+  const [geminiConnectedStatus, setGeminiConnectedStatus] = useState(null);
 
-  const handleSend = () => {
-    const text = inputText.trim();
-    if (!text) return;
+  const handleSendText = async (textToSend) => {
+    const text = (textToSend || inputText).trim();
+    if (!text || isLoading) return;
 
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    // Add user message
-    const newMessages = [...messages, { text, sender: 'user' }];
-    setMessages(newMessages);
+    if (Platform.OS !== 'web') {
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    }
+
+    const userMsg = { text, sender: 'user' };
+    const updatedMessages = [...messages, userMsg];
+    setMessages(updatedMessages);
     setInputText('');
+    setIsLoading(true);
 
-    // Simulate bot response
-    setTimeout(() => {
-      let botResponse = "I'm sorry, I don't have information on that topic yet. Could you ask about NDVI, Water Stress, or Soil Moisture?";
-      
-      // Check for exact matches in predefined responses
-      if (PREDEFINED_RESPONSES[text]) {
-        botResponse = PREDEFINED_RESPONSES[text];
-      } else {
-        // Simple keyword matching as fallback
-        const lowerText = text.toLowerCase();
-        if (lowerText.includes('ndvi')) botResponse = PREDEFINED_RESPONSES['What is NDVI?'];
-        else if (lowerText.includes('ndre')) botResponse = PREDEFINED_RESPONSES['What is NDRE?'];
-        else if (lowerText.includes('ndwi')) botResponse = PREDEFINED_RESPONSES['What is NDWI?'];
-        else if (lowerText.includes('water stress')) botResponse = PREDEFINED_RESPONSES['What is Water Stress?'];
-        else if (lowerText.includes('soil moisture')) botResponse = PREDEFINED_RESPONSES['What is Soil Moisture?'];
-        else if (lowerText.includes('gdd')) botResponse = PREDEFINED_RESPONSES['What is GDD?'];
+    try {
+      const response = await sendChatMessage({
+        message: text,
+        selectedDatasetId,
+        conversationHistory: messages,
+      });
+
+      if (response.newSelectedDatasetId) {
+        setSelectedDatasetId(response.newSelectedDatasetId);
       }
 
-      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-      setMessages(prev => [...prev, { text: botResponse, sender: 'bot' }]);
-    }, 600); // Small delay to feel natural
+      setGeminiConnectedStatus(response.geminiConnected ?? false);
+
+      if (Platform.OS !== 'web') {
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      }
+
+      setMessages(prev => [
+        ...prev,
+        {
+          text: response.answer,
+          sources: response.sources,
+          modelUsed: response.modelUsed,
+          sender: 'bot',
+        }
+      ]);
+    } catch (error) {
+      console.error('Error sending message:', error);
+      setGeminiConnectedStatus(false);
+      setMessages(prev => [
+        ...prev,
+        {
+          text: 'AI analysis is temporarily unavailable. Please try again.',
+          sources: ['System Notice'],
+          sender: 'bot',
+        }
+      ]);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleQuickQuestion = (question) => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    // Add user message
-    const newMessages = [...messages, { text: question, sender: 'user' }];
-    setMessages(newMessages);
-    
-    // Auto respond
-    setTimeout(() => {
-      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-      const botResponse = PREDEFINED_RESPONSES[question];
-      setMessages(prev => [...prev, { text: botResponse, sender: 'bot' }]);
-    }, 600);
+    handleSendText(question);
   };
 
   const hasMessages = messages.length > 0;
@@ -70,9 +86,13 @@ export default function AIAssistant({ theme, isDesktop }) {
           messages={messages}
           inputText={inputText}
           setInputText={setInputText}
-          onSendMessage={handleSend}
+          onSendMessage={() => handleSendText(inputText)}
           isDesktop={isDesktop}
           onQuickQuestionPress={handleQuickQuestion}
+          selectedDatasetId={selectedDatasetId}
+          onSelectDataset={setSelectedDatasetId}
+          isLoading={isLoading}
+          geminiConnectedStatus={geminiConnectedStatus}
           ListHeaderComponent={!hasMessages ? () => (
             <View style={styles.welcomeContainer}>
               <WelcomeSection theme={theme} />
@@ -95,6 +115,6 @@ const styles = StyleSheet.create({
   welcomeContainer: {
     flex: 1,
     justifyContent: 'center',
-    paddingBottom: 40,
+    paddingBottom: 20,
   }
 });

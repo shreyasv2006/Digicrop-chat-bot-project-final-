@@ -1,17 +1,53 @@
 export const PREDEFINED_RESPONSES = {
-  "What is NDVI?": "NDVI (Normalized Difference Vegetation Index) is a widely used remote sensing index to assess whether or not the target being observed contains live green vegetation. It ranges from -1 to 1, where higher values indicate healthier and denser vegetation.",
-  "What is NDRE?": "NDRE (Normalized Difference Red Edge) is an index that is sensitive to chlorophyll content in leaves, variability in leaf area, and background soil effects. It's particularly useful for mapping late-season crops where NDVI might saturate.",
-  "What is NDWI?": "NDWI (Normalized Difference Water Index) is used to monitor changes in water content of leaves. It helps in detecting crop water stress early and managing irrigation more effectively.",
-  "What is Water Stress?": "Water stress occurs when the demand for water exceeds the available amount during a certain period, or when poor quality restricts its use. In crops, it leads to reduced growth, lower yields, and visible signs like wilting or discoloration.",
-  "What is Soil Moisture?": "Soil moisture is the water content of the soil. It is a key variable in controlling the exchange of water and heat energy between the land surface and the atmosphere through evaporation and plant transpiration.",
-  "What is GDD?": "GDD (Growing Degree Days) is a weather-based indicator for assessing crop development. It is a measure of heat accumulation used by horticulturists, gardeners, and farmers to predict plant and animal development rates such as the date that a flower will bloom, or a crop will reach maturity."
+  "What is NDVI?": "NDVI (Normalized Difference Vegetation Index) is a remote sensing index assessing live green vegetation. It ranges from -1 to 1, where higher values (>0.6) indicate healthy, dense canopy reflectance.",
+  "What is NDRE?": "NDRE (Normalized Difference Red Edge) measures leaf chlorophyll content and nitrogen vigor in dense late-season crop canopies.",
+  "What is NDWI?": "NDWI (Normalized Difference Water Index) monitors foliage hydration to detect crop water stress before visible wilting.",
+  "What is Water Stress?": "Water stress occurs when crop water transpiration demand exceeds root-zone soil water availability.",
+  "What is Soil Moisture?": "Soil moisture measures volumetric water content (VWC) in the root zone.",
+  "What is GDD?": "GDD (Growing Degree Days) measures cumulative heat units predicting crop growth stages."
 };
 
 export const QUICK_QUESTIONS = [
-  { id: '1', icon: 'leaf', title: 'NDVI Analysis', question: 'What is NDVI?', desc: 'Understand vegetation health' },
-  { id: '2', icon: 'flower-outline', title: 'NDRE Analysis', question: 'What is NDRE?', desc: 'Monitor crop nitrogen and stress' },
-  { id: '3', icon: 'water-outline', title: 'NDWI Analysis', question: 'What is NDWI?', desc: 'Analyze water content in vegetation' },
-  { id: '4', icon: 'thermometer-outline', title: 'Water Stress', question: 'What is Water Stress?', desc: 'Identify signs of crop water stress' },
-  { id: '5', icon: 'earth', title: 'Soil Moisture', question: 'What is Soil Moisture?', desc: 'Understand soil water availability' },
-  { id: '6', icon: 'trending-up', title: 'GDD', question: 'What is GDD?', desc: 'Track crop growth development' },
+  { 
+    id: '1', 
+    icon: 'search', 
+    title: 'F001 Dataset Soil Moisture', 
+    question: 'Answer from F001 Farm Dataset: what is the current soil moisture?', 
+    desc: 'Query specific telemetry values from Farm F001' 
+  },
+  { 
+    id: '2', 
+    icon: 'git-compare-outline', 
+    title: 'Compare F001 and F004', 
+    question: 'Compare F001 and F004 using their datasets.', 
+    desc: 'Multi-dataset comparative risk & health analysis' 
+  },
+  { 
+    id: '3', 
+    icon: 'alert-circle-outline', 
+    title: 'F001 Risk Analysis', 
+    question: 'Why is F001 at critical risk?', 
+    desc: 'Analyze telemetry stress factors for F001' 
+  },
+  { 
+    id: '4', 
+    icon: 'leaf', 
+    title: 'NDVI General Knowledge', 
+    question: 'What is NDVI and how does a drop affect crop yield?', 
+    desc: 'General remote sensing satellite index guide' 
+  },
+  { 
+    id: '5', 
+    icon: 'warning-outline', 
+    title: 'Critical Farm Alerts', 
+    question: 'Explain the critical alerts for F001.', 
+    desc: 'Inspect telemetry anomaly logs for F001' 
+  },
+  { 
+    id: '6', 
+    icon: 'trending-down-outline', 
+    title: 'Declining NDVI Trends', 
+    question: 'Which farms have declining NDVI?', 
+    desc: 'Identify canopy health drops across DigiCrop plots' 
+  },
 ];

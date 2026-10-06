@@ -4,6 +4,11 @@ const metroResolver = require('metro-resolver');
 
 const config = getDefaultConfig(__dirname);
 
+if (!config.resolver.assetExts.includes('md')) {
+  config.resolver.assetExts.push('md');
+}
+
+
 // Capitalize drive letter for Windows compatibility
 const projectRoot = __dirname.replace(/^[a-z]:/, match => match.toUpperCase());
 

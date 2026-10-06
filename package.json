@@ -10,6 +10,8 @@
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.5",
     "expo": "57.0.9",
     "expo-asset": "~57.0.8",
     "expo-constants": "~57.0.8",
@@ -17,7 +19,9 @@
     "expo-font": "~57.0.1",
     "expo-keep-awake": "~57.0.1",
     "expo-status-bar": "~57.0.1",
+    "express": "^5.2.1",
     "fbjs": "^3.0.5",
+    "gray-matter": "^4.0.3",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-native": "0.86.2",
