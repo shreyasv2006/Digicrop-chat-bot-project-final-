@@ -1,6 +1,6 @@
 /**
  * Vercel Serverless Function: /api/chat
- * Handles Gemini Flash API integration with 5-Mode Intent Classification, RAG & Anti-Hallucination
+ * Supports Groq API (High Performance Llama 3 / GPT-OSS) and Gemini Flash API
  */
 
 const fs = require('fs');
@@ -12,7 +12,7 @@ const SYSTEM_PROMPT = `You are DigiCrop AI — a friendly, natural, expert agric
 ===============================================================================
 1. INTENT & CONVERSATIONAL BEHAVIOR RULES
 ===============================================================================
-- GREETING / SMALL TALK ("hi", "hello", "hey bro", "thanks", "ok"):
+- GREETING / SMALL TALK ("hi", "hello", "hey bro", "thanks", "ok", "who are you", "what are you"):
   Reply in 1-2 short, friendly sentences. Ask what they need help with today and suggest 3 short example topics (e.g. crop health advice, soil/NDVI metrics, or specific farm status). Do NOT mention any farm telemetry or dataset data.
 
 - VAGUE / UNDERSPECIFIED ("tell me about my farm", "what's the status", "help"):
@@ -144,10 +144,11 @@ function classifyUserIntent(userQuery, selectedDatasetId = 'general', conversati
   const qLower = qTrim.toLowerCase();
   const activeFarmId = extractActiveFarmFromHistory(conversationHistory);
 
-  // 1. Greeting & Small Talk
+  // 1. Greeting, Identity & Small Talk
   const greetingPhrases = [
     'hi', 'hello', 'hey', 'hey bro', 'hi bro', 'hello bro', 'good morning', 'good afternoon',
-    'good evening', 'thanks', 'thank you', 'ok', 'okay', 'cool', 'awesome', 'sup', 'yo'
+    'good evening', 'thanks', 'thank you', 'ok', 'okay', 'cool', 'awesome', 'sup', 'yo',
+    'who are you', 'what are you', 'what can you do', 'tell me about yourself'
   ];
   if (greetingPhrases.includes(qLower) || (/^hi\b|^hello\b|^hey\b/i.test(qLower) && qTrim.split(/\s+/).length <= 3)) {
     if (!qLower.includes('ndvi') && !qLower.includes('soil') && !qLower.includes('farm') && !qLower.includes('f00')) {
@@ -311,40 +312,41 @@ module.exports = async function handler(req, res) {
       return res.status(400).json({ error: 'Message string is required.' });
     }
 
-    const apiKey = process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.trim() : null;
-    const requestedModel = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+    const groqKey = process.env.GROQ_API_KEY ? process.env.GROQ_API_KEY.trim() : null;
+    const geminiKey = process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.trim() : null;
+    const groqModel = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
 
     const { mode, activeFarmId } = classifyUserIntent(message, selectedDatasetId, conversationHistory);
 
-    // MODE 1: GREETING & SMALL TALK (Fast short-circuit)
+    // MODE 1: GREETING & SMALL TALK
     if (mode === 'GREETING_SMALLTALK') {
       return res.status(200).json({
         geminiConnected: true,
         answer: "Hello! 👋 I'm DigiCrop AI, your agricultural assistant.\n\nHow can I help you today? Here are a few things you can ask me:\n- **Crop Advice**: Best practices for grapes or wheat\n- **Telemetry Metrics**: Ask about NDVI or soil moisture\n- **Farm Analysis**: Check status for **F001** (Nashik Vineyard) or **F004** (Pune Wheat)",
         sources: ['DigiCrop Guidance'],
-        modelUsed: requestedModel,
+        modelUsed: groqKey ? groqModel : 'Gemini Flash',
         mode,
       });
     }
 
-    // MODE 2: VAGUE & UNDERSPECIFIED (Clarification short-circuit)
+    // MODE 2: VAGUE & UNDERSPECIFIED
     if (mode === 'VAGUE_UNDERSPECIFIED') {
       return res.status(200).json({
         geminiConnected: true,
         answer: "Which farm would you like to inspect: **F001** (Nashik Vineyard) or **F004** (Pune Wheat)? And do you want to check NDVI, soil moisture, weather, or active alerts?",
         sources: ['DigiCrop Guidance'],
-        modelUsed: requestedModel,
+        modelUsed: groqKey ? groqModel : 'Gemini Flash',
         mode,
       });
     }
 
-    // MODE 3: OFF-TOPIC (Short decline)
+    // MODE 3: OFF-TOPIC
     if (mode === 'OFF_TOPIC') {
       return res.status(200).json({
         geminiConnected: true,
         answer: "I specialize in farming, crops, and agricultural telemetry. How can I help with your crops or farm datasets today?",
         sources: ['DigiCrop Guidance'],
-        modelUsed: requestedModel,
+        modelUsed: groqKey ? groqModel : 'Gemini Flash',
         mode,
       });
     }
@@ -364,7 +366,7 @@ module.exports = async function handler(req, res) {
             crop: cd.crop || null,
             description: cd.description || 'Custom uploaded dataset.',
             content: cd.content,
-            raw: cd.content,
+ raw: cd.content,
           });
         }
       });
@@ -387,7 +389,7 @@ module.exports = async function handler(req, res) {
           geminiConnected: true,
           answer: `I don't have dataset or telemetry information for farm **${targetFarmId}**. Please select or upload the ${targetFarmId} dataset to inspect telemetry.`,
           sources: ['System Guardrail'],
-          modelUsed: requestedModel,
+          modelUsed: groqKey ? groqModel : 'Gemini Flash',
           mode: 'FARM_DATA_QUESTION',
         });
       }
@@ -406,104 +408,151 @@ module.exports = async function handler(req, res) {
       contextText += `===============================================\n\n`;
     }
 
-    if (!apiKey) {
-      return res.status(200).json({
-        geminiConnected: false,
-        answer: '⚠️ **Gemini API Key Missing**: Please set `GEMINI_API_KEY` in environment configuration.',
-        sources: ['Gemini API Diagnostic'],
-        modelUsed: requestedModel,
-      });
-    }
-
-    // Format Multi-Turn Conversation History for Gemini (last 8 messages)
-    const contents = [];
-    if (Array.isArray(conversationHistory)) {
-      conversationHistory.slice(-8).forEach(msg => {
-        contents.push({
-          role: (msg.sender === 'user' || msg.role === 'user') ? 'user' : 'model',
-          parts: [{ text: msg.text || msg.content || '' }]
-        });
-      });
-    }
-
-    const currentPromptText = contextText ? `${contextText}USER QUESTION: ${message}` : message;
-    contents.push({
-      role: 'user',
-      parts: [{ text: currentPromptText }]
-    });
-
-    // Dynamic maxOutputTokens based on mode & prompt intent
     const isDetailedRequest = message.toLowerCase().includes('explain in detail') || message.toLowerCase().includes('full report') || message.toLowerCase().includes('detailed');
     let maxOutputTokens = 350;
     if (mode === 'GENERAL_AGRICULTURE') maxOutputTokens = 600;
     if (isDetailedRequest) maxOutputTokens = 1200;
 
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${requestedModel}:generateContent?key=${apiKey}`;
+    const currentPromptText = contextText ? `${contextText}USER QUESTION: ${message}` : message;
 
-    let responseData = null;
-    try {
-      const response = await fetch(geminiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents,
-          systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
-          generationConfig: {
+    // 1. PRIMARY INFERENCE: GROQ API (If GROQ_API_KEY is present)
+    if (groqKey) {
+      try {
+        const groqMessages = [
+          { role: 'system', content: SYSTEM_PROMPT }
+        ];
+
+        if (Array.isArray(conversationHistory)) {
+          conversationHistory.slice(-6).forEach(msg => {
+            groqMessages.push({
+              role: (msg.sender === 'user' || msg.role === 'user') ? 'user' : 'assistant',
+              content: msg.text || msg.content || ''
+            });
+          });
+        }
+
+        groqMessages.push({
+          role: 'user',
+          content: currentPromptText
+        });
+
+        const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${groqKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            model: groqModel,
+            messages: groqMessages,
             temperature: 0.3,
-            topP: 0.9,
-            maxOutputTokens,
+            top_p: 0.9,
+            max_tokens: maxOutputTokens,
+          })
+        });
+
+        if (groqResponse.ok) {
+          const groqData = await groqResponse.json();
+          const groqAnswer = groqData.choices?.[0]?.message?.content;
+
+          if (groqAnswer) {
+            const sourcesUsed = mode === 'FARM_DATA_QUESTION' && datasetNames.length > 0
+              ? datasetNames
+              : ['Groq Agricultural AI'];
+
+            return res.status(200).json({
+              geminiConnected: true,
+              answer: groqAnswer,
+              sources: sourcesUsed,
+              modelUsed: `Groq (${groqModel})`,
+              mode,
+              targetDatasets: targetDatasets.map(d => ({ name: d.name, fileName: d.fileName })),
+            });
           }
-        })
-      });
-
-      if (response.ok) {
-        responseData = await response.json();
-      } else {
-        const errText = await response.text();
-        console.warn(`[Gemini API Warning] ${response.status}:`, errText.substring(0, 150));
+        }
+      } catch (err) {
+        console.warn('[Groq API Call Failed]:', err.message);
       }
-    } catch (err) {
-      console.warn('[Gemini API Fetch Error]:', err.message);
     }
 
-    const rawAnswerText = responseData?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-    if (rawAnswerText) {
-      const sourcesUsed = mode === 'FARM_DATA_QUESTION' && datasetNames.length > 0
-        ? datasetNames
-        : ['Gemini Agricultural Knowledge'];
-
-      return res.status(200).json({
-        geminiConnected: true,
-        answer: rawAnswerText,
-        sources: sourcesUsed,
-        modelUsed: requestedModel,
-        mode,
-        targetDatasets: targetDatasets.map(d => ({ name: d.name, fileName: d.fileName })),
+    // 2. SECONDARY INFERENCE: GEMINI API FALLBACK
+    if (geminiKey) {
+      const geminiModel = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${geminiKey}`;
+      
+      const contents = [];
+      if (Array.isArray(conversationHistory)) {
+        conversationHistory.slice(-6).forEach(msg => {
+          contents.push({
+            role: (msg.sender === 'user' || msg.role === 'user') ? 'user' : 'model',
+            parts: [{ text: msg.text || msg.content || '' }]
+          });
+        });
+      }
+      contents.push({
+        role: 'user',
+        parts: [{ text: currentPromptText }]
       });
+
+      try {
+        const geminiResponse = await fetch(geminiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents,
+            systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+            generationConfig: {
+              temperature: 0.3,
+              topP: 0.9,
+              maxOutputTokens,
+            }
+          })
+        });
+
+        if (geminiResponse.ok) {
+          const geminiData = await geminiResponse.json();
+          const geminiAnswer = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (geminiAnswer) {
+            const sourcesUsed = mode === 'FARM_DATA_QUESTION' && datasetNames.length > 0
+              ? datasetNames
+              : ['Gemini Agricultural Knowledge'];
+
+            return res.status(200).json({
+              geminiConnected: true,
+              answer: geminiAnswer,
+              sources: sourcesUsed,
+              modelUsed: geminiModel,
+              mode,
+              targetDatasets: targetDatasets.map(d => ({ name: d.name, fileName: d.fileName })),
+            });
+          }
+        }
+      } catch (err) {
+        console.warn('[Gemini API Call Failed]:', err.message);
+      }
     }
 
-    // Fallback Tier 2 (Intent-Aware Dataset RAG Response when API is unavailable)
+    // 3. TERTIARY FALLBACK: GROUNDED DATASET RAG RESPONSE
     if (mode === 'FARM_DATA_QUESTION' && targetDatasets.length > 0) {
       const mainDs = targetDatasets[0];
       return res.status(200).json({
         geminiConnected: true,
-        answer: `*Note: I'm having trouble reaching the live AI service right now, but here is the data from your dataset:*\n\n**${mainDs.name} Telemetry:**\n\n${mainDs.content}`,
+        answer: `*Note: Here is the observed telemetry from your dataset:*\n\n**${mainDs.name} Telemetry:**\n\n${mainDs.content}`,
         sources: datasetNames,
-        modelUsed: requestedModel,
+        modelUsed: 'Grounded Dataset Engine',
         mode,
       });
     }
 
     return res.status(200).json({
       geminiConnected: false,
-      answer: '⚠️ **Gemini is temporarily busy** (rate limit reached). Please wait a moment and try again.',
-      sources: ['Gemini API Diagnostic'],
-      modelUsed: requestedModel,
+      answer: '⚠️ **AI Service Busy**: Please wait a moment and try again.',
+      sources: ['API Diagnostic'],
+      modelUsed: 'DigiCrop AI',
     });
 
   } catch (error) {
-    console.error('[Gemini Debug Error]:', error);
+    console.error('[DigiCrop AI Error]:', error);
     return res.status(500).json({
       geminiConnected: false,
       error: error.message || 'Internal Server Error',
