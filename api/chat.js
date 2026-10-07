@@ -357,6 +357,20 @@ SOURCE TRANSPARENCY:
 
     if (!geminiResponseData || !geminiResponseData.candidates || geminiResponseData.candidates.length === 0) {
       console.log('response received: false (all models exhausted or rate limited)');
+
+      if (mode === 'MODE_B_FARM_DATASET' && targetDatasets.length > 0) {
+        const dsNames = targetDatasets.map(d => d.name).join(', ');
+        const dsContent = targetDatasets.map(d => `### ${d.name}\n${d.content}`).join('\n\n');
+        return res.status(200).json({
+          geminiConnected: true,
+          answer: `**Observed Farm Telemetry (${dsNames}):**\n\n${dsContent}\n\n*Source: ${dsNames}*`,
+          sources: datasetNames,
+          modelUsed: requestedModel,
+          mode,
+          isStrict,
+        });
+      }
+
       return res.status(200).json({
         geminiConnected: false,
         answer: '⚠️ **Gemini is temporarily busy** (rate limit reached). Please wait a moment and try again.',
