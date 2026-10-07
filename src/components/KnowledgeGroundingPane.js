@@ -1,9 +1,45 @@
-import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SIZES } from '../constants/theme';
+import { datasetService } from '../services/datasetService';
 
-export default function KnowledgeGroundingPane({ theme, onOpenUploadModal }) {
+export default function KnowledgeGroundingPane({ theme, onOpenUploadModal, onDatasetChanged }) {
+  const [datasets, setDatasets] = useState([]);
+
+  const reloadDatasets = () => {
+    setDatasets(datasetService.getAllDatasets());
+  };
+
+  useEffect(() => {
+    reloadDatasets();
+  }, []);
+
+  const handleDelete = (ds) => {
+    if (!ds.isCustom) return;
+    
+    const confirmDelete = () => {
+      datasetService.removeCustomDataset(ds.id);
+      reloadDatasets();
+      if (onDatasetChanged) onDatasetChanged();
+    };
+
+    if (Platform.OS === 'web') {
+      if (window.confirm(`Delete dataset "${ds.name}"?`)) {
+        confirmDelete();
+      }
+    } else {
+      Alert.alert(
+        'Delete Dataset',
+        `Are you sure you want to delete "${ds.name}"?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Delete', style: 'destructive', onPress: confirmDelete }
+        ]
+      );
+    }
+  };
+
   return (
     <View style={[styles.container, { backgroundColor: theme.surface, borderLeftColor: theme.border }]}>
       {/* Header */}
@@ -11,74 +47,65 @@ export default function KnowledgeGroundingPane({ theme, onOpenUploadModal }) {
         <View style={styles.headerTitleRow}>
           <View style={styles.flexRow}>
             <Ionicons name="server-outline" size={16} color={theme.primary} style={{ marginRight: 8 }} />
-            <Text style={[styles.headerTitle, { color: theme.text }]}>FARM DATASETS</Text>
+            <Text style={[styles.headerTitle, { color: theme.text }]}>INGESTED KNOWLEDGE</Text>
           </View>
           <View style={[styles.activeBadge, { backgroundColor: theme.primary + '20', borderColor: theme.primary + '50' }]}>
-            <Text style={[styles.activeBadgeText, { color: theme.primary }]}>Active</Text>
+            <Text style={[styles.activeBadgeText, { color: theme.primary }]}>{datasets.length} Loaded</Text>
           </View>
         </View>
       </View>
 
       <ScrollView style={styles.body} showsVerticalScrollIndicator={false}>
-        {/* Ingested Datasets List */}
         <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>Ingested Knowledge</Text>
+          <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>Loaded Datasets</Text>
 
-          {/* Dataset Item 1 */}
-          <View style={[styles.datasetCard, { backgroundColor: theme.cardBg, borderColor: theme.border }]}>
-            <View style={styles.datasetRow}>
-              <View style={styles.flexRow}>
-                <Ionicons name="analytics-outline" size={16} color={theme.primary} style={{ marginRight: 8 }} />
-                <Text style={[styles.datasetName, { color: theme.text }]} numberOfLines={1}>
-                  Soil TDT Telemetry
-                </Text>
-              </View>
-              <View style={[styles.syncedChip, { backgroundColor: theme.primary + '20' }]}>
-                <Text style={[styles.syncedChipText, { color: theme.primary }]}>Synced</Text>
-              </View>
+          {datasets.length === 0 ? (
+            <View style={[styles.emptyCard, { backgroundColor: theme.cardBg, borderColor: theme.border }]}>
+              <Text style={[styles.emptyText, { color: theme.textSecondary }]}>No datasets added yet.</Text>
             </View>
-            <Text style={[styles.datasetMetaText, { color: theme.textSecondary }]}>2,410 Readings • 6 Farms</Text>
-          </View>
+          ) : (
+            datasets.map((ds) => (
+              <View key={ds.id} style={[styles.datasetCard, { backgroundColor: theme.cardBg, borderColor: theme.border }]}>
+                <View style={styles.datasetRow}>
+                  <View style={styles.flexRow}>
+                    <Ionicons 
+                      name={ds.isCustom ? "document-text-outline" : "analytics-outline"} 
+                      size={15} 
+                      color={ds.isCustom ? theme.accent : theme.primary} 
+                      style={{ marginRight: 6 }} 
+                    />
+                    <Text style={[styles.datasetName, { color: theme.text }]} numberOfLines={1}>
+                      {ds.name}
+                    </Text>
+                  </View>
+                  <View style={[styles.syncedChip, { backgroundColor: ds.isCustom ? theme.accent + '20' : theme.primary + '20' }]}>
+                    <Text style={[styles.syncedChipText, { color: ds.isCustom ? theme.accent : theme.primary }]}>
+                      {ds.source}
+                    </Text>
+                  </View>
+                </View>
 
-          {/* Dataset Item 2 */}
-          <View style={[styles.datasetCard, { backgroundColor: theme.cardBg, borderColor: theme.border }]}>
-            <View style={styles.datasetRow}>
-              <View style={styles.flexRow}>
-                <Ionicons name="planet-outline" size={16} color={theme.accent} style={{ marginRight: 8 }} />
-                <Text style={[styles.datasetName, { color: theme.text }]} numberOfLines={1}>
-                  Sentinel-2 NDVI Layer
-                </Text>
+                <View style={styles.metaRow}>
+                  <Text style={[styles.datasetMetaText, { color: theme.textSecondary }]}>
+                    {ds.chunkCount} {ds.chunkCount === 1 ? 'Chunk' : 'Chunks'} {ds.farmId ? `• ${ds.farmId}` : ''}
+                  </Text>
+                  {ds.isCustom && (
+                    <TouchableOpacity onPress={() => handleDelete(ds)} style={{ paddingLeft: 6 }}>
+                      <Ionicons name="trash-outline" size={14} color="#EF4444" />
+                    </TouchableOpacity>
+                  )}
+                </View>
               </View>
-              <View style={[styles.syncedChip, { backgroundColor: theme.accent + '20' }]}>
-                <Text style={[styles.syncedChipText, { color: theme.accent }]}>Live</Text>
-              </View>
-            </View>
-            <Text style={[styles.datasetMetaText, { color: theme.textSecondary }]}>Resolution 10m/px</Text>
-          </View>
+            ))
+          )}
 
-          {/* Dataset Item 3 */}
-          <View style={[styles.datasetCard, { backgroundColor: theme.cardBg, borderColor: theme.border }]}>
-            <View style={styles.datasetRow}>
-              <View style={styles.flexRow}>
-                <Ionicons name="book-outline" size={16} color={theme.alertAmber} style={{ marginRight: 8 }} />
-                <Text style={[styles.datasetName, { color: theme.text }]} numberOfLines={1}>
-                  ICAR Crop Pathology
-                </Text>
-              </View>
-              <View style={[styles.syncedChip, { backgroundColor: '#334155' }]}>
-                <Text style={[styles.syncedChipText, { color: '#E2E8F0' }]}>RAG Core</Text>
-              </View>
-            </View>
-            <Text style={[styles.datasetMetaText, { color: theme.textSecondary }]}>512 Knowledge Chunks</Text>
-          </View>
-
-          {/* Upload Button */}
+          {/* Add / Upload Button */}
           <TouchableOpacity 
             style={[styles.uploadBtn, { backgroundColor: theme.cardBg, borderColor: theme.primary + '50' }]}
             onPress={onOpenUploadModal}
           >
             <Ionicons name="cloud-upload-outline" size={16} color={theme.primary} style={{ marginRight: 8 }} />
-            <Text style={[styles.uploadBtnText, { color: theme.primary }]}>Upload Dataset (.md / .csv)</Text>
+            <Text style={[styles.uploadBtnText, { color: theme.primary }]}>+ Add Dataset (.md / .csv / .txt)</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -134,8 +161,19 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     textTransform: 'uppercase',
   },
+  emptyCard: {
+    padding: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  emptyText: {
+    fontSize: 13,
+    fontStyle: 'italic',
+  },
   datasetCard: {
-    padding: 12,
+    padding: 10,
     borderRadius: 8,
     borderWidth: 1,
     marginBottom: 10,
@@ -147,7 +185,7 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   datasetName: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '600',
     flex: 1,
   },
@@ -157,8 +195,13 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   syncedChipText: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: 'bold',
+  },
+  metaRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   datasetMetaText: {
     fontSize: 11,
@@ -178,4 +221,3 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 });
-

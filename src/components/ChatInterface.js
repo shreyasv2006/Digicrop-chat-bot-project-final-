@@ -7,14 +7,6 @@ import MarkdownText from './MarkdownText';
 import UploadDatasetModal from './UploadDatasetModal';
 import { datasetService } from '../services/datasetService';
 
-const QUICK_QUERIES = [
-  { id: '1', query: 'Compare F001 and F004 using their datasets.' },
-  { id: '2', query: 'What is the NDVI of F001?' },
-  { id: '3', query: 'What is the soil moisture of F001?' },
-  { id: '4', query: 'Why is F001 at critical risk?' },
-  { id: '5', query: 'Compare Soil EC vs NDVI' },
-];
-
 export default function ChatInterface({
   theme,
   messages,
@@ -34,10 +26,25 @@ export default function ChatInterface({
   const insets = useSafeAreaInsets();
   const [modalVisible, setModalVisible] = useState(false);
   const [datasetOptions, setDatasetOptions] = useState([]);
+  const [allDatasetsCount, setAllDatasetsCount] = useState(0);
+  const [totalChunksCount, setTotalChunksCount] = useState(0);
+
+  const refreshDatasetInfo = () => {
+    const opts = datasetService.getDatasetSelectorOptions();
+    const allDs = datasetService.getAllDatasets();
+    setDatasetOptions(opts);
+    setAllDatasetsCount(allDs.length);
+
+    let totalChunks = 0;
+    allDs.forEach(d => {
+      totalChunks += (d.chunkCount || 1);
+    });
+    setTotalChunksCount(totalChunks);
+  };
 
   useEffect(() => {
-    setDatasetOptions(datasetService.getDatasetSelectorOptions());
-  }, [selectedDatasetId]);
+    refreshDatasetInfo();
+  }, [selectedDatasetId, messages]);
 
   useEffect(() => {
     if (messages.length > 0 || isLoading) {
@@ -47,12 +54,28 @@ export default function ChatInterface({
     }
   }, [messages, isLoading]);
 
-  const activeDatasetObj = datasetOptions.find(opt => opt.id === selectedDatasetId) || datasetOptions[0];
-
   const handleDatasetAdded = (newDataset) => {
-    setDatasetOptions(datasetService.getDatasetSelectorOptions());
+    refreshDatasetInfo();
     if (onSelectDataset) onSelectDataset(newDataset.id);
   };
+
+  const isGroundingActive = selectedDatasetId && selectedDatasetId !== 'general';
+
+  // Dynamic Quick Queries based on loaded data
+  const farmIds = datasetService.getLoadedFarmIds();
+  const quickQueries = [];
+  if (farmIds.includes('F001')) {
+    quickQueries.push('What is the NDVI of F001?');
+    quickQueries.push('What is the soil moisture of F001?');
+  }
+  if (farmIds.includes('F004')) {
+    quickQueries.push('What is the status of F004?');
+  }
+  if (farmIds.includes('F001') && farmIds.includes('F004')) {
+    quickQueries.push('Compare F001 and F004 using their datasets.');
+  }
+  quickQueries.push('How does NDVI work?');
+  quickQueries.push('Best irrigation tips');
 
   return (
     <KeyboardAvoidingView 
@@ -151,41 +174,19 @@ export default function ChatInterface({
                   </View>
                 ) : (
                   <View style={{ width: '100%' }}>
-                    {/* Engine Meta Header */}
-                    <View style={[styles.engineMetaBar, { borderBottomColor: theme.border }]}>
-                      <View style={styles.flexRow}>
-                        <Ionicons name="cpu-outline" size={13} color={theme.primary} style={{ marginRight: 4 }} />
-                        <Text style={[styles.engineMetaTitle, { color: theme.primary }]}>
-                          DigiCrop-Engine-v2.6
-                        </Text>
-                      </View>
-                      <Text style={[styles.metaInfoText, { color: theme.textSecondary }]}>
-                        Confidence: <Text style={{ color: theme.primary, fontWeight: 'bold' }}>94% (HIGH)</Text> • Grounding Loss: <Text style={{ color: theme.accent, fontWeight: 'bold' }}>0.00%</Text>
-                      </Text>
-                    </View>
-
                     <MarkdownText content={msg.text} textColor={theme.text} theme={theme} />
                     
-                    {/* Source & Actions Footer */}
-                    <View style={[styles.sourceBadgeContainer, { borderTopColor: theme.border }]}>
-                      {msg.sources && msg.sources.length > 0 && (
+                    {/* Source Attribution Line */}
+                    {msg.sources && msg.sources.length > 0 && (
+                      <View style={[styles.sourceBadgeContainer, { borderTopColor: theme.border }]}>
                         <View style={styles.flexRow}>
                           <Ionicons name="shield-checkmark-outline" size={13} color={theme.primary} style={{ marginRight: 4 }} />
                           <Text style={[styles.sourceBadgeText, { color: theme.textSecondary }]}>
-                            Grounded: <Text style={{ fontWeight: '600', color: theme.text }}>{msg.sources.join(', ')}</Text>
+                            Source: <Text style={{ fontWeight: '600', color: theme.text }}>{msg.sources.join(', ')}</Text>
                           </Text>
                         </View>
-                      )}
-                      
-                      <View style={styles.actionIconsRow}>
-                        <TouchableOpacity style={styles.iconBtnAction}>
-                          <Ionicons name="copy-outline" size={13} color={theme.textSecondary} />
-                        </TouchableOpacity>
-                        <TouchableOpacity style={styles.iconBtnAction}>
-                          <Ionicons name="download-outline" size={13} color={theme.textSecondary} />
-                        </TouchableOpacity>
                       </View>
-                    </View>
+                    )}
                   </View>
                 )}
               </View>
@@ -205,11 +206,11 @@ export default function ChatInterface({
             <View style={[styles.avatarBot, { backgroundColor: theme.primary + '20', borderColor: theme.primary + '50' }]}>
               <Ionicons name="hardware-chip-outline" size={18} color={theme.primary} />
             </View>
-            <View style={[styles.messageBubble, styles.botBubble, { backgroundColor: theme.cardBg, borderColor: theme.border, paddingVertical: 14 }]}>
+            <View style={[styles.messageBubble, styles.botBubble, { backgroundColor: theme.cardBg, borderColor: theme.border, paddingVertical: 12 }]}>
               <View style={styles.flexRow}>
                 <ActivityIndicator size="small" color={theme.primary} style={{ marginRight: 10 }} />
                 <Text style={{ color: theme.textSecondary, fontSize: 13, fontStyle: 'italic' }}>
-                  DigiCrop AI is analyzing telemetry & running deterministic grounding...
+                  DigiCrop AI is analyzing dataset context...
                 </Text>
               </View>
             </View>
@@ -225,17 +226,17 @@ export default function ChatInterface({
           contentContainerStyle={styles.quickQuestionsHorizontalContent}
         >
           <Text style={[styles.quickLabel, { color: theme.textSecondary }]}>QUICK QUERIES:</Text>
-          {QUICK_QUERIES.map((item) => (
+          {quickQueries.slice(0, 5).map((qText, idx) => (
             <TouchableOpacity
-              key={item.id}
+              key={idx}
               style={[
                 styles.quickQuestionPill, 
                 { backgroundColor: theme.cardBg, borderColor: theme.border }
               ]}
-              onPress={() => onQuickQuestionPress && onQuickQuestionPress(item.query)}
+              onPress={() => onQuickQuestionPress && onQuickQuestionPress(qText)}
             >
               <Text style={[styles.quickQuestionPillText, { color: theme.text }]}>
-                {item.query}
+                {qText}
               </Text>
             </TouchableOpacity>
           ))}
@@ -254,7 +255,7 @@ export default function ChatInterface({
         <View style={[styles.inputWrapper, { backgroundColor: theme.background, borderColor: theme.border }]}>
           <TextInput
             style={[styles.input, { color: theme.text }]}
-            placeholder="Ask DigiCrop AI about your farms, crop health, risk thresholds, NDVI, soil moisture..."
+            placeholder="Ask DigiCrop AI about your crops, farm datasets, NDVI, or soil..."
             placeholderTextColor={theme.textSecondary}
             value={inputText}
             onChangeText={setInputText}
@@ -265,9 +266,14 @@ export default function ChatInterface({
           
           <View style={styles.inputBottomRow}>
             <View style={styles.flexRow}>
-              <Ionicons name="shield-checkmark" size={13} color={theme.primary} style={{ marginRight: 4 }} />
-              <Text style={[styles.groundingActiveText, { color: theme.primary }]}>
-                Grounding Active
+              <Ionicons 
+                name={isGroundingActive ? "shield-checkmark" : "globe-outline"} 
+                size={13} 
+                color={isGroundingActive ? theme.primary : theme.textSecondary} 
+                style={{ marginRight: 4 }} 
+              />
+              <Text style={[styles.groundingActiveText, { color: isGroundingActive ? theme.primary : theme.textSecondary }]}>
+                {isGroundingActive ? 'Grounding Active' : 'General knowledge mode'}
               </Text>
             </View>
 
@@ -292,17 +298,17 @@ export default function ChatInterface({
         </View>
       </View>
 
-      {/* Status Footer */}
+      {/* Real Status Footer */}
       {isDesktop && (
         <View style={[styles.statusBar, { backgroundColor: theme.background, borderTopColor: theme.border }]}>
           <View style={styles.flexRow}>
-            <View style={[styles.statusDotGreen, { backgroundColor: theme.primary }]} />
+            <View style={[styles.statusDotGreen, { backgroundColor: geminiConnectedStatus === false ? '#EF4444' : theme.primary }]} />
             <Text style={[styles.statusFooterText, { color: theme.textSecondary }]}>
-              6 / 6 IoT Hubs Online • Sentinel-2 (Today 06:14 UTC)
+              {geminiConnectedStatus === false ? 'AI Offline' : 'AI Connected'} • Datasets: {allDatasetsCount} loaded • Chunks: {totalChunksCount} indexed
             </Text>
           </View>
-          <Text style={[styles.statusFooterText, { color: theme.primary }]}>
-            © 2026 DigiCrop AI Engine
+          <Text style={[styles.statusFooterText, { color: theme.textSecondary }]}>
+            DigiCrop AI
           </Text>
         </View>
       )}
@@ -435,21 +441,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 22,
   },
-  engineMetaBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingBottom: 6,
-    marginBottom: 8,
-    borderBottomWidth: 1,
-  },
-  engineMetaTitle: {
-    fontSize: 11,
-    fontWeight: 'bold',
-  },
-  metaInfoText: {
-    fontSize: 10,
-  },
   sourceBadgeContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -460,13 +451,6 @@ const styles = StyleSheet.create({
   },
   sourceBadgeText: {
     fontSize: 11,
-  },
-  actionIconsRow: {
-    flexDirection: 'row',
-  },
-  iconBtnAction: {
-    marginLeft: 8,
-    padding: 2,
   },
   inputContainer: {
     padding: SIZES.sm,
@@ -544,7 +528,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: SIZES.md,
-    paddingVertical: 4,
+    paddingVertical: 6,
     borderTopWidth: 1,
   },
   statusDotGreen: {
@@ -554,6 +538,6 @@ const styles = StyleSheet.create({
     marginRight: 6,
   },
   statusFooterText: {
-    fontSize: 10,
+    fontSize: 11,
   }
 });

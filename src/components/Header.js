@@ -3,6 +3,8 @@ import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native
 import { Ionicons } from '@expo/vector-icons';
 import { SIZES } from '../constants/theme';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import DCLogo from './DCLogo';
+import { datasetService } from '../services/datasetService';
 
 export default function Header({ 
   theme, 
@@ -16,7 +18,9 @@ export default function Header({
   onOpenAuditLog,
 }) {
   const insets = useSafeAreaInsets();
-  
+  const farmIds = datasetService.getLoadedFarmIds();
+  const farmLabel = farmIds.length > 0 ? `Farms (${farmIds.join(', ')})` : null;
+
   return (
     <View style={[
       styles.container, 
@@ -34,8 +38,8 @@ export default function Header({
           </TouchableOpacity>
         )}
 
-        <View style={[styles.logoBox, { backgroundColor: theme.primary + '18', borderColor: theme.primary + '40' }]}>
-          <Ionicons name="leaf" size={18} color={theme.primary} />
+        <View style={{ marginRight: 10 }}>
+          <DCLogo size={32} theme={theme} />
         </View>
 
         <View>
@@ -49,13 +53,14 @@ export default function Header({
       </View>
 
       {/* Active Context */}
-      {isDesktop && (
+      {isDesktop && farmLabel && (
         <View style={[styles.contextSelector, { backgroundColor: theme.cardBg, borderColor: theme.border }]}>
           <Ionicons name="location-outline" size={14} color={theme.primary} style={{ marginRight: 6 }} />
-          <Text style={[styles.contextValueText, { color: theme.text }]}>Farms (F001–F006)</Text>
+          <Text style={[styles.contextValueText, { color: theme.text }]}>{farmLabel}</Text>
           <Ionicons name="chevron-down" size={12} color={theme.textSecondary} style={{ marginLeft: 6 }} />
         </View>
       )}
+
 
       {/* Controls & User Profile */}
       <View style={styles.controlsRow}>

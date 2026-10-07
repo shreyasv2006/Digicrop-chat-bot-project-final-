@@ -1,15 +1,16 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 import { SIZES } from '../constants/theme';
+import DCLogo from './DCLogo';
 
 export default function WelcomeSection({ theme }) {
   return (
     <View style={styles.container}>
-      <View style={[styles.iconContainer, { backgroundColor: theme.primary + '15' }]}>
-        <Ionicons name="leaf" size={44} color={theme.primary} />
+      <View style={{ marginBottom: SIZES.md }}>
+        <DCLogo size={64} theme={theme} />
       </View>
       <Text style={[styles.greeting, { color: theme.textSecondary }]}>DigiCrop Agricultural Intelligence</Text>
+
       <Text style={[styles.question, { color: theme.text }]}>
         How can I assist your farm decisions today?
       </Text>

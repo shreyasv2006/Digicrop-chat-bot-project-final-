@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SIZES } from '../constants/theme';
+import DCLogo from './DCLogo';
 
 const MENU_ITEMS = [
   { id: '1', icon: 'grid', title: 'Dashboard' },
@@ -24,8 +25,8 @@ export default function Sidebar({ theme, isDesktop, closeSidebar, currentScreen,
       !isDesktop && styles.mobileContainer
     ]}>
       <View style={styles.header}>
-        <View style={[styles.logoIcon, { backgroundColor: theme.primary }]}>
-          <Ionicons name="leaf" size={24} color="#FFF" />
+        <View style={{ marginRight: SIZES.md }}>
+          <DCLogo size={36} theme={theme} />
         </View>
         <Text style={[styles.logoText, { color: theme.text }]}>DigiCrop AI</Text>
         
@@ -35,6 +36,7 @@ export default function Sidebar({ theme, isDesktop, closeSidebar, currentScreen,
           </TouchableOpacity>
         )}
       </View>
+
 
       <ScrollView style={styles.menuList} showsVerticalScrollIndicator={false}>
         {MENU_ITEMS.map((item) => {
