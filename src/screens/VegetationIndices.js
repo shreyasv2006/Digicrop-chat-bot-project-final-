@@ -1,102 +1,126 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SIZES } from '../constants/theme';
+import { getRealFarms, getThresholdStatus } from '../services/datasetData';
+import datasetService from '../services/datasetService';
+import UploadDatasetModal from '../components/UploadDatasetModal';
 
 export default function VegetationIndices({ theme }) {
-  const [selectedIndex, setSelectedIndex] = useState('NDVI');
+  const [farms, setFarms] = useState([]);
+  const [thresholds, setThresholds] = useState({});
+  const [modalVisible, setModalVisible] = useState(false);
 
-  const indices = {
-    NDVI: {
-      name: 'Normalized Difference Vegetation Index',
-      value: '0.78',
-      status: 'Optimal',
-      desc: 'NDVI evaluates the density and health of green vegetation. Chlorophyll absorbs red light, whereas the mesophyll cell structure of leaves strongly reflects near-infrared light. Higher readings represent healthy, dense crop cover.',
-      details: 'Current measurements indicate strong canopy closures in Field A and B, suggesting stable development stages.',
-    },
-    NDRE: {
-      name: 'Normalized Difference Red Edge',
-      value: '0.52',
-      status: 'Medium',
-      desc: 'NDRE uses the red-edge spectrum which penetrates leaf layers deeper than red light. This makes it sensitive to canopy chlorophyll levels in advanced growth stages where NDVI has already saturated.',
-      details: 'Slight chlorophyll decline noted in North Field A corn leaves, suggesting potential crop nitrogen dilution.',
-    },
-    NDWI: {
-      name: 'Normalized Difference Water Index',
-      value: '0.64',
-      status: 'Optimal',
-      desc: 'NDWI is sensitive to liquid water molecules in crop leaf structures. It monitors vegetation water content and liquid moisture storage, serving as an early indicator of drought stress before physical crop wilting occurs.',
-      details: 'Current readings show no imminent crop water deficit or water stress warnings across all fields.',
-    }
+  const loadData = () => {
+    const data = getRealFarms();
+    setFarms(data.farms || []);
+    setThresholds(data.thresholds || {});
   };
 
-  const active = indices[selectedIndex];
+  useEffect(() => {
+    loadData();
+    const unsubscribe = datasetService.subscribe(() => {
+      loadData();
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const ndviFarms = farms.filter(f => f.ndvi != null);
+
+  if (ndviFarms.length === 0) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.emptyContainer}>
+          <View style={[styles.iconCircle, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <Ionicons name="leaf-outline" size={48} color={theme.textSecondary} />
+          </View>
+          <Text style={[styles.emptyTitle, { color: theme.text }]}>No Vegetation Index Data Loaded</Text>
+          <Text style={[styles.emptyDesc, { color: theme.textSecondary }]}>
+            Upload or add a dataset containing NDVI telemetry or satellite vegetation indices to view real canopy coverage and health metrics.
+          </Text>
+          <TouchableOpacity
+            style={[styles.actionBtn, { backgroundColor: theme.primary }]}
+            onPress={() => setModalVisible(true)}
+          >
+            <Ionicons name="add-circle-outline" size={20} color="#FFF" />
+            <Text style={styles.actionBtnText}>Add NDVI Dataset</Text>
+          </TouchableOpacity>
+        </View>
+
+        <UploadDatasetModal
+          visible={modalVisible}
+          onClose={() => setModalVisible(false)}
+          theme={theme}
+          onUploadSuccess={() => loadData()}
+        />
+      </View>
+    );
+  }
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-      {/* Index Selection Pills */}
-      <View style={styles.pillsRow}>
-        {Object.keys(indices).map((key) => (
-          <TouchableOpacity
-            key={key}
-            style={[
-              styles.pillBtn,
-              selectedIndex === key ? { backgroundColor: theme.primary } : { backgroundColor: theme.surface, borderColor: theme.border }
-            ]}
-            onPress={() => setSelectedIndex(key)}
-          >
-            <Text style={[
-              styles.pillBtnText,
-              selectedIndex === key ? { color: '#FFF' } : { color: theme.text }
-            ]}>
-              {key}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+      <Text style={[styles.pageHeading, { color: theme.text }]}>Real Vegetation Index (NDVI) Readings</Text>
+      
+      {ndviFarms.map((farm) => {
+        const ndviStatus = getThresholdStatus(farm.ndvi, 'ndvi', thresholds);
 
-      {/* Main Details Card */}
-      <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-        <View style={styles.cardHeader}>
-          <View>
-            <Text style={[styles.indexAcronym, { color: theme.text }]}>{selectedIndex}</Text>
-            <Text style={[styles.indexFullName, { color: theme.textSecondary }]}>{active.name}</Text>
-          </View>
-          <View style={styles.valueMeta}>
-            <Text style={[styles.indexValue, { color: theme.text }]}>{active.value}</Text>
-            <Text style={[styles.statusBadge, { color: theme.primary, backgroundColor: theme.primary + '15' }]}>
-              {active.status}
-            </Text>
-          </View>
-        </View>
+        return (
+          <View key={farm.id} style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <View style={styles.cardHeader}>
+              <View>
+                <Text style={[styles.indexAcronym, { color: theme.text }]}>{farm.name || farm.id}</Text>
+                <Text style={[styles.indexFullName, { color: theme.textSecondary }]}>
+                  {farm.crop ? `Crop: ${farm.crop}` : 'Farm Reading'} • {farm.location || 'Loaded Dataset'}
+                </Text>
+              </View>
+              <View style={styles.valueMeta}>
+                <Text style={[styles.indexValue, { color: theme.text }]}>{farm.ndvi}</Text>
+                {ndviStatus ? (
+                  <Text style={[styles.statusBadge, { color: ndviStatus.color, backgroundColor: ndviStatus.color + '15' }]}>
+                    {ndviStatus.label}
+                  </Text>
+                ) : (
+                  <Text style={[styles.statusBadge, { color: theme.textSecondary, backgroundColor: theme.border }]}>
+                    Raw Metric
+                  </Text>
+                )}
+              </View>
+            </View>
 
-        <View style={[styles.divider, { backgroundColor: theme.border }]} />
+            <View style={[styles.divider, { backgroundColor: theme.border }]} />
 
-        <Text style={[styles.sectionTitle, { color: theme.text }]}>What it measures</Text>
-        <Text style={[styles.description, { color: theme.textSecondary }]}>{active.desc}</Text>
+            <View style={styles.detailsRow}>
+              {farm.growthStage ? (
+                <View style={styles.detailItem}>
+                  <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Growth Stage</Text>
+                  <Text style={[styles.detailValue, { color: theme.text }]}>{farm.growthStage}</Text>
+                </View>
+              ) : null}
 
-        <Text style={[styles.sectionTitle, { color: theme.text, marginTop: SIZES.lg }]}>Recent Field Readings</Text>
-        <Text style={[styles.description, { color: theme.textSecondary }]}>{active.details}</Text>
-      </View>
+              {farm.canopyCoverage != null ? (
+                <View style={styles.detailItem}>
+                  <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Canopy Coverage</Text>
+                  <Text style={[styles.detailValue, { color: theme.text }]}>{farm.canopyCoverage}%</Text>
+                </View>
+              ) : null}
 
-      {/* Satellite Scan Card */}
-      <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-        <Text style={[styles.cardTitle, { color: theme.text }]}>Sentinel Satellite Scan Details</Text>
-        <View style={styles.metaBox}>
-          <View style={styles.metaRow}>
-            <Text style={[styles.metaLabel, { color: theme.textSecondary }]}>Last Pass Date</Text>
-            <Text style={[styles.metaValue, { color: theme.text }]}>July 30, 2026</Text>
+              {farm.soilMoisture != null ? (
+                <View style={styles.detailItem}>
+                  <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Associated Soil Moisture</Text>
+                  <Text style={[styles.detailValue, { color: theme.text }]}>{farm.soilMoisture}%</Text>
+                </View>
+              ) : null}
+            </View>
           </View>
-          <View style={styles.metaRow}>
-            <Text style={[styles.metaLabel, { color: theme.textSecondary }]}>Resolution</Text>
-            <Text style={[styles.metaValue, { color: theme.text }]}>10 meters per pixel</Text>
-          </View>
-          <View style={styles.metaRow}>
-            <Text style={[styles.metaLabel, { color: theme.textSecondary }]}>Cloud Coverage</Text>
-            <Text style={[styles.metaValue, { color: theme.text }]}>0.0% (Optimal Scan)</Text>
-          </View>
-        </View>
-      </View>
+        );
+      })}
+
+      <UploadDatasetModal
+        visible={modalVisible}
+        onClose={() => setModalVisible(false)}
+        theme={theme}
+        onUploadSuccess={() => loadData()}
+      />
     </ScrollView>
   );
 }
@@ -108,19 +132,50 @@ const styles = StyleSheet.create({
   content: {
     padding: SIZES.lg,
   },
-  pillsRow: {
-    flexDirection: 'row',
-    gap: SIZES.sm,
+  pageHeading: {
+    fontSize: 18,
+    fontWeight: 'bold',
     marginBottom: SIZES.lg,
   },
-  pillBtn: {
-    paddingHorizontal: SIZES.lg,
-    paddingVertical: SIZES.md,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'transparent',
+  emptyContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: SIZES.xxl,
+    minHeight: 400,
   },
-  pillBtnText: {
+  iconCircle: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: SIZES.lg,
+  },
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: SIZES.sm,
+    textAlign: 'center',
+  },
+  emptyDesc: {
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: 'center',
+    maxWidth: 440,
+    marginBottom: SIZES.xl,
+  },
+  actionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SIZES.sm,
+    paddingHorizontal: SIZES.xl,
+    paddingVertical: SIZES.md,
+    borderRadius: SIZES.radiusMd,
+  },
+  actionBtnText: {
+    color: '#FFF',
     fontSize: 15,
     fontWeight: 'bold',
   },
@@ -136,7 +191,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   indexAcronym: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: 'bold',
   },
   indexFullName: {
@@ -163,33 +218,21 @@ const styles = StyleSheet.create({
     height: 1,
     marginVertical: SIZES.lg,
   },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginBottom: SIZES.xs,
-  },
-  description: {
-    fontSize: 15,
-    lineHeight: 22,
-  },
-  cardTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: SIZES.md,
-  },
-  metaBox: {
-    gap: SIZES.sm,
-  },
-  metaRow: {
+  detailsRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: SIZES.xl,
   },
-  metaLabel: {
-    fontSize: 15,
+  detailItem: {
+    minWidth: 120,
   },
-  metaValue: {
+  detailLabel: {
+    fontSize: 13,
+    marginBottom: 4,
+  },
+  detailValue: {
     fontSize: 15,
-    fontWeight: '600',
+    fontWeight: 'bold',
   }
 });
+

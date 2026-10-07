@@ -1,76 +1,164 @@
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SIZES } from '../constants/theme';
+import { getRealFarms, getThresholdStatus } from '../services/datasetData';
+import datasetService from '../services/datasetService';
+import UploadDatasetModal from '../components/UploadDatasetModal';
 
-export default function SoilAnalysis({ theme }) {
-  const nutrients = [
-    { element: 'Nitrogen (N)', val: '45 mg/kg', status: 'Medium', level: 0.5, color: '#3B82F6' },
-    { element: 'Phosphorus (P)', val: '22 mg/kg', status: 'High', level: 0.85, color: theme.primary },
-    { element: 'Potassium (K)', val: '180 mg/kg', status: 'Optimal', level: 0.7, color: theme.primary },
-  ];
+export default function SoilAnalysis({ theme, onNavigate }) {
+  const [farms, setFarms] = useState([]);
+  const [thresholds, setThresholds] = useState({});
+  const [modalVisible, setModalVisible] = useState(false);
+
+  const loadData = () => {
+    const data = getRealFarms();
+    setFarms(data.farms || []);
+    setThresholds(data.thresholds || {});
+  };
+
+  useEffect(() => {
+    loadData();
+    const unsubscribe = datasetService.subscribe(() => {
+      loadData();
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Filter farms that have at least one soil reading
+  const soilFarms = farms.filter(f => 
+    f.ph != null || f.soilMoisture != null || f.temperature != null || f.ec != null || f.nitrogen != null
+  );
+
+  if (soilFarms.length === 0) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.emptyContainer}>
+          <View style={[styles.iconCircle, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <Ionicons name="flask-outline" size={48} color={theme.textSecondary} />
+          </View>
+          <Text style={[styles.emptyTitle, { color: theme.text }]}>No Soil Analysis Data Loaded</Text>
+          <Text style={[styles.emptyDesc, { color: theme.textSecondary }]}>
+            Upload or add a dataset containing soil telemetry (pH, moisture %, EC, temperature) to view real soil metrics and threshold evaluations.
+          </Text>
+          <TouchableOpacity
+            style={[styles.actionBtn, { backgroundColor: theme.primary }]}
+            onPress={() => setModalVisible(true)}
+          >
+            <Ionicons name="add-circle-outline" size={20} color="#FFF" />
+            <Text style={styles.actionBtnText}>Add Soil Dataset</Text>
+          </TouchableOpacity>
+        </View>
+
+        <UploadDatasetModal
+          visible={modalVisible}
+          onClose={() => setModalVisible(false)}
+          theme={theme}
+          onUploadSuccess={() => loadData()}
+        />
+      </View>
+    );
+  }
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-      {/* Overview stats */}
-      <View style={styles.grid}>
-        <View style={[styles.statCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-          <Text style={[styles.statLabel, { color: theme.textSecondary }]}>Soil PH Level</Text>
-          <Text style={[styles.statValue, { color: theme.text }]}>6.5</Text>
-          <Text style={[styles.statDesc, { color: theme.primary }]}>Optimal (Slightly Acidic)</Text>
-        </View>
+      {soilFarms.map((farm) => {
+        const phStatus = farm.ph != null ? getThresholdStatus(farm.ph, 'ph', thresholds) : null;
+        const moistureStatus = farm.soilMoisture != null ? getThresholdStatus(farm.soilMoisture, 'moisture', thresholds) : null;
+        const ecStatus = farm.ec != null ? getThresholdStatus(farm.ec, 'ec', thresholds) : null;
+        const tempStatus = farm.temperature != null ? getThresholdStatus(farm.temperature, 'temperature', thresholds) : null;
 
-        <View style={[styles.statCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-          <Text style={[styles.statLabel, { color: theme.textSecondary }]}>Soil Temperature</Text>
-          <Text style={[styles.statValue, { color: theme.text }]}>18.5°C</Text>
-          <Text style={[styles.statDesc, { color: theme.textSecondary }]}>Measured at 10cm depth</Text>
-        </View>
-      </View>
+        return (
+          <View key={farm.id} style={[styles.farmBlock, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <View style={styles.farmHeader}>
+              <Text style={[styles.farmTitle, { color: theme.text }]}>{farm.name || farm.id}</Text>
+              <Text style={[styles.farmLocation, { color: theme.textSecondary }]}>{farm.location || 'Loaded Dataset'}</Text>
+            </View>
 
-      {/* Nutrients Card */}
-      <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-        <Text style={[styles.cardTitle, { color: theme.text }]}>Primary Nutrients (NPK) Levels</Text>
-        <Text style={[styles.infoText, { color: theme.textSecondary }]}>
-          Current soil macronutrient levels mapped from chemical sensors and historical soil probes. Recommended adjustments will optimize upcoming tillering stages.
-        </Text>
+            <View style={styles.grid}>
+              {farm.ph != null && (
+                <View style={[styles.statCard, { backgroundColor: theme.background, borderColor: theme.border }]}>
+                  <Text style={[styles.statLabel, { color: theme.textSecondary }]}>Soil pH</Text>
+                  <Text style={[styles.statValue, { color: theme.text }]}>{farm.ph}</Text>
+                  {phStatus ? (
+                    <Text style={[styles.statDesc, { color: phStatus.color }]}>{phStatus.label}</Text>
+                  ) : (
+                    <Text style={[styles.statDesc, { color: theme.textSecondary }]}>Raw Reading</Text>
+                  )}
+                </View>
+              )}
 
-        {nutrients.map((item, index) => (
-          <View key={index} style={styles.nutrientRow}>
-            <View style={styles.nutrientHeader}>
-              <Text style={[styles.nutrientName, { color: theme.text }]}>{item.element}</Text>
-              <View style={styles.nutrientMeta}>
-                <Text style={[styles.nutrientValue, { color: theme.text }]}>{item.val}</Text>
-                <Text style={[styles.nutrientStatusBadge, { color: item.color, backgroundColor: item.color + '15' }]}>
-                  {item.status}
-                </Text>
+              {farm.soilMoisture != null && (
+                <View style={[styles.statCard, { backgroundColor: theme.background, borderColor: theme.border }]}>
+                  <Text style={[styles.statLabel, { color: theme.textSecondary }]}>Soil Moisture</Text>
+                  <Text style={[styles.statValue, { color: theme.text }]}>{farm.soilMoisture}%</Text>
+                  {moistureStatus ? (
+                    <Text style={[styles.statDesc, { color: moistureStatus.color }]}>{moistureStatus.label}</Text>
+                  ) : (
+                    <Text style={[styles.statDesc, { color: theme.textSecondary }]}>Raw Reading</Text>
+                  )}
+                </View>
+              )}
+
+              {farm.ec != null && (
+                <View style={[styles.statCard, { backgroundColor: theme.background, borderColor: theme.border }]}>
+                  <Text style={[styles.statLabel, { color: theme.textSecondary }]}>Electrical Conductivity (EC)</Text>
+                  <Text style={[styles.statValue, { color: theme.text }]}>{farm.ec} dS/m</Text>
+                  {ecStatus ? (
+                    <Text style={[styles.statDesc, { color: ecStatus.color }]}>{ecStatus.label}</Text>
+                  ) : (
+                    <Text style={[styles.statDesc, { color: theme.textSecondary }]}>Raw Reading</Text>
+                  )}
+                </View>
+              )}
+
+              {farm.temperature != null && (
+                <View style={[styles.statCard, { backgroundColor: theme.background, borderColor: theme.border }]}>
+                  <Text style={[styles.statLabel, { color: theme.textSecondary }]}>Soil Temperature</Text>
+                  <Text style={[styles.statValue, { color: theme.text }]}>{farm.temperature}°C</Text>
+                  {tempStatus ? (
+                    <Text style={[styles.statDesc, { color: tempStatus.color }]}>{tempStatus.label}</Text>
+                  ) : (
+                    <Text style={[styles.statDesc, { color: theme.textSecondary }]}>Raw Reading</Text>
+                  )}
+                </View>
+              )}
+            </View>
+
+            {/* Nutrients NPK section if available */}
+            {(farm.nitrogen != null || farm.phosphorus != null || farm.potassium != null) && (
+              <View style={styles.npkSection}>
+                <Text style={[styles.sectionTitle, { color: theme.text }]}>Real NPK Soil Metrics</Text>
+                {farm.nitrogen != null && (
+                  <View style={styles.nutrientRow}>
+                    <Text style={[styles.nutrientName, { color: theme.text }]}>Nitrogen (N)</Text>
+                    <Text style={[styles.nutrientVal, { color: theme.text }]}>{farm.nitrogen} mg/kg</Text>
+                  </View>
+                )}
+                {farm.phosphorus != null && (
+                  <View style={styles.nutrientRow}>
+                    <Text style={[styles.nutrientName, { color: theme.text }]}>Phosphorus (P)</Text>
+                    <Text style={[styles.nutrientVal, { color: theme.text }]}>{farm.phosphorus} mg/kg</Text>
+                  </View>
+                )}
+                {farm.potassium != null && (
+                  <View style={styles.nutrientRow}>
+                    <Text style={[styles.nutrientName, { color: theme.text }]}>Potassium (K)</Text>
+                    <Text style={[styles.nutrientVal, { color: theme.text }]}>{farm.potassium} mg/kg</Text>
+                  </View>
+                )}
               </View>
-            </View>
-            
-            <View style={[styles.progressBg, { backgroundColor: theme.border }]}>
-              <View style={[styles.progressFill, { backgroundColor: item.color, width: `${item.level * 100}%` }]} />
-            </View>
+            )}
           </View>
-        ))}
-      </View>
+        );
+      })}
 
-      {/* Recommendation Card */}
-      <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-        <Text style={[styles.cardTitle, { color: theme.text }]}>Soil Treatment Recommendations</Text>
-        <View style={styles.recsBox}>
-          <View style={styles.recItem}>
-            <Ionicons name="information-circle-outline" size={24} color={theme.primary} />
-            <Text style={[styles.recText, { color: theme.text }]}>
-              Nitrogen levels are currently in the medium range. Consider side-dressing nitrogen fertilizer (e.g., urea) at a rate of 40 kg/ha within the next 7 days.
-            </Text>
-          </View>
-          <View style={styles.recItem}>
-            <Ionicons name="information-circle-outline" size={24} color={theme.primary} />
-            <Text style={[styles.recText, { color: theme.text }]}>
-              Soil pH is 6.5, which is ideal for maize and soybean cultivation. Lime application is not required.
-            </Text>
-          </View>
-        </View>
-      </View>
+      <UploadDatasetModal
+        visible={modalVisible}
+        onClose={() => setModalVisible(false)}
+        theme={theme}
+        onUploadSuccess={() => loadData()}
+      />
     </ScrollView>
   );
 }
@@ -82,96 +170,113 @@ const styles = StyleSheet.create({
   content: {
     padding: SIZES.lg,
   },
-  grid: {
-    flexDirection: 'row',
-    gap: SIZES.md,
-    marginBottom: SIZES.lg,
-  },
-  statCard: {
+  emptyContainer: {
     flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: SIZES.xxl,
+    minHeight: 400,
+  },
+  iconCircle: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
     borderWidth: 1,
-    borderRadius: SIZES.radiusLg,
-    padding: SIZES.xl,
-  },
-  statLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    marginBottom: SIZES.xs,
-  },
-  statValue: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    marginBottom: SIZES.xs,
-  },
-  statDesc: {
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  card: {
-    borderWidth: 1,
-    borderRadius: SIZES.radiusLg,
-    padding: SIZES.xl,
+    alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: SIZES.lg,
   },
-  cardTitle: {
-    fontSize: 18,
+  emptyTitle: {
+    fontSize: 20,
     fontWeight: 'bold',
-    marginBottom: SIZES.md,
+    marginBottom: SIZES.sm,
+    textAlign: 'center',
   },
-  infoText: {
+  emptyDesc: {
     fontSize: 15,
     lineHeight: 22,
-    marginBottom: SIZES.lg,
+    textAlign: 'center',
+    maxWidth: 440,
+    marginBottom: SIZES.xl,
   },
-  nutrientRow: {
-    marginBottom: SIZES.lg,
-  },
-  nutrientHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: SIZES.xs,
-  },
-  nutrientName: {
-    fontSize: 15,
-    fontWeight: 'bold',
-  },
-  nutrientMeta: {
+  actionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: SIZES.sm,
+    paddingHorizontal: SIZES.xl,
+    paddingVertical: SIZES.md,
+    borderRadius: SIZES.radiusMd,
   },
-  nutrientValue: {
+  actionBtnText: {
+    color: '#FFF',
     fontSize: 15,
+    fontWeight: 'bold',
+  },
+  farmBlock: {
+    borderWidth: 1,
+    borderRadius: SIZES.radiusLg,
+    padding: SIZES.xl,
+    marginBottom: SIZES.lg,
+  },
+  farmHeader: {
+    marginBottom: SIZES.lg,
+  },
+  farmTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
+  farmLocation: {
+    fontSize: 14,
+    marginTop: 2,
+  },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: SIZES.md,
+  },
+  statCard: {
+    flex: 1,
+    minWidth: 140,
+    borderWidth: 1,
+    borderRadius: SIZES.radiusMd,
+    padding: SIZES.md,
+  },
+  statLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  statValue: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  statDesc: {
+    fontSize: 12,
     fontWeight: '600',
   },
-  nutrientStatusBadge: {
-    fontSize: 12,
+  npkSection: {
+    marginTop: SIZES.lg,
+    paddingTop: SIZES.md,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.1)',
+  },
+  sectionTitle: {
+    fontSize: 16,
     fontWeight: 'bold',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-    overflow: 'hidden',
+    marginBottom: SIZES.md,
   },
-  progressBg: {
-    height: 8,
-    borderRadius: 4,
-    width: '100%',
-  },
-  progressFill: {
-    height: '100%',
-    borderRadius: 4,
-  },
-  recsBox: {
-    gap: SIZES.md,
-  },
-  recItem: {
+  nutrientRow: {
     flexDirection: 'row',
-    gap: SIZES.md,
+    justifyContent: 'space-between',
+    paddingVertical: 6,
   },
-  recText: {
-    fontSize: 15,
-    lineHeight: 22,
-    flex: 1,
+  nutrientName: {
+    fontSize: 14,
+  },
+  nutrientVal: {
+    fontSize: 14,
+    fontWeight: 'bold',
   }
 });
+

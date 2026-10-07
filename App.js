@@ -8,6 +8,7 @@ import Sidebar from './src/components/Sidebar';
 import Header from './src/components/Header';
 import AuditLogModal from './src/components/AuditLogModal';
 import { injectWebFonts } from './src/utils/injectWebFonts';
+import datasetService from './src/services/datasetService';
 
 // Import Screens
 import DashboardOverview from './src/screens/DashboardOverview';
@@ -51,9 +52,7 @@ export default function App() {
   };
 
   const handleSyncLiveData = () => {
-    if (Platform.OS === 'web' && typeof window !== 'undefined') {
-      alert('✅ Live Telemetry Synced with 6 IoT Gateway Hubs!');
-    }
+    datasetService.notifyListeners();
   };
 
   const renderScreen = () => {

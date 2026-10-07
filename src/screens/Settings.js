@@ -1,6 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView, Switch, TouchableOpacity } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { View, Text, StyleSheet, ScrollView, Switch } from 'react-native';
 import { SIZES } from '../constants/theme';
 
 export default function Settings({ theme, isDarkMode, toggleTheme }) {
@@ -28,7 +27,7 @@ export default function Settings({ theme, isDarkMode, toggleTheme }) {
         <View style={styles.settingRow}>
           <View style={styles.settingText}>
             <Text style={[styles.settingLabel, { color: theme.text }]}>Measurement Units</Text>
-            <Text style={[styles.settingDesc, { color: theme.textSecondary }]}>Use metric values (Celsius, meters, kg)</Text>
+            <Text style={[styles.settingDesc, { color: theme.textSecondary }]}>Use metric values (Celsius, meters, kg, ha)</Text>
           </View>
           <Switch
             value={true}
@@ -39,31 +38,17 @@ export default function Settings({ theme, isDarkMode, toggleTheme }) {
         </View>
       </View>
 
-      {/* Account Profile Card */}
+      {/* System Information Card */}
       <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-        <Text style={[styles.cardTitle, { color: theme.text }]}>Account Information</Text>
-        <View style={styles.profileRow}>
-          <View style={[styles.profileAvatar, { backgroundColor: theme.primary + '20' }]}>
-            <Text style={[styles.avatarText, { color: theme.primary }]}>DR</Text>
-          </View>
-          <View style={styles.profileDetails}>
-            <Text style={[styles.profileName, { color: theme.text }]}>DigiCrop Researcher</Text>
-            <Text style={[styles.profileEmail, { color: theme.textSecondary }]}>researcher@digicrop.com</Text>
-          </View>
-        </View>
-      </View>
-
-      {/* System About Card */}
-      <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-        <Text style={[styles.cardTitle, { color: theme.text }]}>About AgriSense AI</Text>
+        <Text style={[styles.cardTitle, { color: theme.text }]}>System Information</Text>
         <View style={styles.infoRow}>
           <Text style={[styles.infoLabel, { color: theme.textSecondary }]}>Application Version</Text>
-          <Text style={[styles.infoValue, { color: theme.text }]}>1.0.0 (Expo SDK 57)</Text>
+          <Text style={[styles.infoValue, { color: theme.text }]}>1.0.0 (Expo SDK 52 / React Native Web)</Text>
         </View>
         <View style={[styles.divider, { backgroundColor: theme.border }]} />
         <View style={styles.infoRow}>
-          <Text style={[styles.infoLabel, { color: theme.textSecondary }]}>Model Backend</Text>
-          <Text style={[styles.infoValue, { color: theme.text }]}>AgriSense Core v2</Text>
+          <Text style={[styles.infoLabel, { color: theme.textSecondary }]}>RAG & Grounding Engine</Text>
+          <Text style={[styles.infoValue, { color: theme.text }]}>DigiCrop Dataset RAG Service</Text>
         </View>
       </View>
     </ScrollView>
@@ -110,33 +95,6 @@ const styles = StyleSheet.create({
     height: 1,
     marginVertical: SIZES.md,
   },
-  profileRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SIZES.md,
-  },
-  profileAvatar: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarText: {
-    fontSize: 22,
-    fontWeight: 'bold',
-  },
-  profileDetails: {
-    flex: 1,
-  },
-  profileName: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 4,
-  },
-  profileEmail: {
-    fontSize: 14,
-  },
   infoRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -151,3 +109,4 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   }
 });
+
