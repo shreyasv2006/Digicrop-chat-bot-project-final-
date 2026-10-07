@@ -35,17 +35,20 @@ export default function UploadDatasetModal({ visible, onClose, onDatasetAdded, t
   };
 
   const validateFileExtension = (filename) => {
-    const ext = filename.split('.').pop()?.toLowerCase();
-    return ['md', 'csv', 'txt'].includes(ext);
+    // Allow any document / data file format (.csv, .md, .txt, .pdf, .json, .doc, .docx)
+    return true;
+  };
+
+  const extractReadableText = (rawText) => {
+    if (!rawText) return '';
+    // Filter out unprintable binary control codes if raw PDF/binary file is selected
+    const cleanText = rawText.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g, ' ').replace(/\s+/g, ' ');
+    return cleanText.trim();
   };
 
   const handleFileUpload = (event) => {
     if (Platform.OS === 'web' && event.target && event.target.files?.[0]) {
       const file = event.target.files[0];
-      if (!validateFileExtension(file.name)) {
-        setErrorMsg('Invalid file format. Please upload a .md, .csv, or .txt file.');
-        return;
-      }
 
       setErrorMsg('');
       setIsProcessing(true);
@@ -53,7 +56,8 @@ export default function UploadDatasetModal({ visible, onClose, onDatasetAdded, t
       
       const reader = new FileReader();
       reader.onload = (e) => {
-        const text = e.target.result || '';
+        const raw = e.target.result || '';
+        const text = extractReadableText(raw);
         setMarkdownContent(text);
         
         const farmMatch = text.match(/farm_id:\s*(F[0-9]{3}|F00[0-9])|\bF[0-9]{3}\b|\bF00[0-9]\b/i);
@@ -69,6 +73,12 @@ export default function UploadDatasetModal({ visible, onClose, onDatasetAdded, t
 
         setIsProcessing(false);
       };
+
+      reader.onerror = () => {
+        setIsProcessing(false);
+        setErrorMsg('Failed to read file. Please try pasting the content instead.');
+      };
+
       reader.readAsText(file);
     }
   };
@@ -193,15 +203,15 @@ ${markdownContent.trim()}`;
             {activeTab === 'upload' && (
               <View style={[styles.uploadBox, { backgroundColor: theme.background, borderColor: theme.border }]}>
                 <Ionicons name="cloud-upload-outline" size={28} color={theme.primary} style={{ marginBottom: 6 }} />
-                <Text style={[styles.uploadBoxTitle, { color: theme.text }]}>Select Dataset File (.md, .csv, .txt)</Text>
+                <Text style={[styles.uploadBoxTitle, { color: theme.text }]}>Select Dataset File (.csv, .md, .txt, .pdf, docs)</Text>
                 <Text style={[styles.uploadBoxDesc, { color: theme.textSecondary }]}>
-                  Upload raw telemetry CSV, Markdown knowledge guides, or field notes.
+                  Upload raw telemetry CSV, Markdown knowledge guides, PDF papers, or field notes.
                 </Text>
 
                 {Platform.OS === 'web' && (
                   <input 
                     type="file" 
-                    accept=".md,.csv,.txt"
+                    accept="*/*"
                     onChange={handleFileUpload}
                     style={{
                       marginTop: '10px',
