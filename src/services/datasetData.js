@@ -135,7 +135,7 @@ export function parseCSVToRows(rawText) {
 export function parseMDTableToRows(rawText) {
   if (!rawText || typeof rawText !== 'string') return [];
   const lines = rawText.split(/\r?\n/).map(l => l.trim()).filter(l => l.includes('|'));
-  if (lines.length < 3) return []; // header, divider, at least 1 data row
+  if (lines.length < 2) return [];
 
   // Find header line
   let hIdx = -1;
@@ -146,14 +146,30 @@ export function parseMDTableToRows(rawText) {
     }
   }
 
+  if (hIdx === -1) {
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].split('|').filter(c => c.trim().length > 0).length >= 2) {
+        hIdx = i;
+        break;
+      }
+    }
+  }
+
   if (hIdx === -1) return [];
 
-  const headers = lines[hIdx].split('|').map(h => h.trim()).filter(h => h.length > 0);
-  const rows = [];
+  const headers = lines[hIdx].split('|').map(h => h.trim()).filter(h => h.length > 0 && !/^[-:]+$/.test(h));
+  if (headers.length < 2) return [];
 
-  for (let i = hIdx + 2; i < lines.length; i++) {
-    if (!lines[i].includes('|') || lines[i].startsWith('#')) break;
-    const cols = lines[i].split('|').map(c => c.trim()).filter((_, idx, arr) => idx > 0 && idx < arr.length - 1);
+  const rows = [];
+  const startRow = (hIdx + 1 < lines.length && /^[| -:]+$/.test(lines[hIdx + 1])) ? hIdx + 2 : hIdx + 1;
+
+  for (let i = startRow; i < lines.length; i++) {
+    const line = lines[i];
+    if (/^[| -:]+$/.test(line) || line.startsWith('#')) continue;
+    const cols = line.split('|').map(c => c.trim()).filter((c, idx, arr) => {
+      if ((idx === 0 || idx === arr.length - 1) && c === '') return false;
+      return true;
+    });
     if (cols.length === 0) continue;
     const rowObj = {};
     headers.forEach((h, idx) => {
@@ -162,6 +178,27 @@ export function parseMDTableToRows(rawText) {
     rows.push(rowObj);
   }
 
+  return rows;
+}
+
+export function parseWhitespaceTableToRows(rawText) {
+  if (!rawText || typeof rawText !== 'string') return [];
+  const lines = rawText.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0 && !l.startsWith('#') && !l.startsWith('---'));
+  if (lines.length < 2) return [];
+
+  const headers = lines[0].split(/\s{2,}|\t/).map(h => h.trim()).filter(h => h.length > 0);
+  if (headers.length < 2) return [];
+
+  const rows = [];
+  for (let i = 1; i < lines.length; i++) {
+    const values = lines[i].split(/\s{2,}|\t/).map(v => v.trim());
+    if (values.length < 2) continue;
+    const rowObj = {};
+    headers.forEach((h, idx) => {
+      rowObj[h] = values[idx] !== undefined ? values[idx] : '';
+    });
+    rows.push(rowObj);
+  }
   return rows;
 }
 
@@ -200,6 +237,9 @@ export function extractNormalizedRows(dataset) {
   let rawRows = parseCSVToRows(text);
   if (rawRows.length === 0) {
     rawRows = parseMDTableToRows(text);
+  }
+  if (rawRows.length === 0) {
+    rawRows = parseWhitespaceTableToRows(text);
   }
   if (rawRows.length === 0) {
     rawRows = parseKVToRecords(text);

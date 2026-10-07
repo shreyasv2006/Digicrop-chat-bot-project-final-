@@ -205,9 +205,10 @@ class DatasetService {
 
   getAllDatasets() {
     return [...this.customDatasets].map(d => {
-      const chunks = countDatasetChunks(d.content);
+      const fullText = d.raw || d.content || '';
+      const chunks = countDatasetChunks(fullText);
       const source = d.isPasted ? 'Pasted' : 'Uploaded';
-      const farmIds = extractFarmIdsFromContent(d.content + ' ' + (d.farmId || ''));
+      const farmIds = extractFarmIdsFromContent(fullText + ' ' + (d.farmId || ''));
       return {
         ...d,
         chunkCount: chunks,

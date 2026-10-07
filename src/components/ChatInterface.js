@@ -1,8 +1,9 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Platform, KeyboardAvoidingView, ActivityIndicator } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, Feather } from '@expo/vector-icons';
 import { SIZES } from '../constants/theme';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import DCLogo from './DCLogo';
 import MarkdownText from './MarkdownText';
 import UploadDatasetModal from './UploadDatasetModal';
 import { datasetService } from '../services/datasetService';
@@ -154,7 +155,7 @@ export default function ChatInterface({
             >
               {!isUser && (
                 <View style={[styles.avatarBot, { backgroundColor: theme.primary + '20', borderColor: theme.primary + '50' }]}>
-                  <Ionicons name="hardware-chip-outline" size={18} color={theme.primary} />
+                  <DCLogo size={20} theme={theme} />
                 </View>
               )}
               
@@ -236,7 +237,7 @@ export default function ChatInterface({
         {isLoading && (
           <View style={[styles.messageRow, styles.messageRowBot]}>
             <View style={[styles.avatarBot, { backgroundColor: theme.primary + '20', borderColor: theme.primary + '50' }]}>
-              <Ionicons name="hardware-chip-outline" size={18} color={theme.primary} />
+              <DCLogo size={20} theme={theme} />
             </View>
             <View style={[styles.messageBubble, styles.botBubble, { backgroundColor: theme.cardBg, borderColor: theme.border, paddingVertical: 12 }]}>
               <View style={styles.flexRow}>
@@ -310,8 +311,8 @@ export default function ChatInterface({
             </View>
 
             <View style={styles.flexRow}>
-              <TouchableOpacity style={styles.attachButton} onPress={() => setModalVisible(true)}>
-                <Ionicons name="paperclip" size={18} color={theme.textSecondary} />
+              <TouchableOpacity style={styles.attachButton} onPress={() => setModalVisible(true)} title="Attach Dataset">
+                <Feather name="paperclip" size={17} color={theme.textSecondary} />
               </TouchableOpacity>
               
               <TouchableOpacity 
@@ -323,7 +324,7 @@ export default function ChatInterface({
                 disabled={inputText.trim().length === 0 || isLoading}
               >
                 <Text style={styles.sendBtnText}>Analyze</Text>
-                <Ionicons name="send" size={13} color="#FFF" style={{ marginLeft: 4 }} />
+                <Feather name="send" size={13} color="#FFF" style={{ marginLeft: 4 }} />
               </TouchableOpacity>
             </View>
           </View>

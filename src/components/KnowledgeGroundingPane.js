@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Platform } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, Feather } from '@expo/vector-icons';
 import { SIZES } from '../constants/theme';
 import { datasetService } from '../services/datasetService';
 import { getDetectedFieldsString } from '../services/datasetData';
@@ -69,8 +69,8 @@ export default function KnowledgeGroundingPane({ theme, onOpenUploadModal, onDat
               <View key={ds.id} style={[styles.datasetCard, { backgroundColor: theme.cardBg, borderColor: theme.border }]}>
                 <View style={styles.datasetRow}>
                   <View style={styles.flexRow}>
-                    <Ionicons 
-                      name="document-text-outline" 
+                    <Feather 
+                      name="file-text" 
                       size={15} 
                       color={theme.accent} 
                       style={{ marginRight: 6 }} 
@@ -95,7 +95,7 @@ export default function KnowledgeGroundingPane({ theme, onOpenUploadModal, onDat
                     {ds.chunkCount} {ds.chunkCount === 1 ? 'Chunk' : 'Chunks'} {ds.farmId ? `• ${ds.farmId}` : ''}
                   </Text>
                   <TouchableOpacity onPress={() => handleDelete(ds)} style={{ paddingLeft: 6 }}>
-                    <Ionicons name="trash-outline" size={14} color="#EF4444" />
+                    <Feather name="trash-2" size={14} color="#EF4444" />
                   </TouchableOpacity>
                 </View>
               </View>
