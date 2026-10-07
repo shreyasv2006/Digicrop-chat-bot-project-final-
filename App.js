@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, useWindowDimensions, SafeAreaView, Platform, StatusBar } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { COLORS } from './src/constants/theme';
 import Sidebar from './src/components/Sidebar';
 import Header from './src/components/Header';
+import AuditLogModal from './src/components/AuditLogModal';
+import { injectWebFonts } from './src/utils/injectWebFonts';
 
 // Import Screens
 import DashboardOverview from './src/screens/DashboardOverview';
@@ -18,21 +20,39 @@ import Settings from './src/screens/Settings';
 export default function App() {
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [currentScreen, setCurrentScreen] = useState('AI Assistant');
+  const [auditModalVisible, setAuditModalVisible] = useState(false);
+  const [sessionResetTrigger, setSessionResetTrigger] = useState(0);
+
   const { width } = useWindowDimensions();
   const isDesktop = width >= 768; // Tablet/Desktop breakpoint
   
   const theme = isDarkMode ? COLORS.dark : COLORS.light;
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
+  useEffect(() => {
+    injectWebFonts();
+  }, []);
+
   const toggleTheme = () => setIsDarkMode(!isDarkMode);
   const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
+
+  const handleNewSession = () => {
+    setSessionResetTrigger(prev => prev + 1);
+    setCurrentScreen('AI Assistant');
+  };
+
+  const handleSyncLiveData = () => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      alert('✅ Live Telemetry Synced with 6 IoT Gateway Hubs!');
+    }
+  };
 
   const renderScreen = () => {
     switch (currentScreen) {
       case 'Dashboard':
         return <DashboardOverview theme={theme} onNavigate={setCurrentScreen} isDesktop={isDesktop} />;
       case 'AI Assistant':
-        return <AIAssistant theme={theme} isDesktop={isDesktop} />;
+        return <AIAssistant theme={theme} isDesktop={isDesktop} sessionResetTrigger={sessionResetTrigger} />;
       case 'Crop Health':
         return <CropHealth theme={theme} onNavigate={setCurrentScreen} />;
       case 'Weather Insights':
@@ -46,7 +66,7 @@ export default function App() {
       case 'Settings':
         return <Settings theme={theme} isDarkMode={isDarkMode} toggleTheme={toggleTheme} />;
       default:
-        return <DashboardOverview theme={theme} onNavigate={setCurrentScreen} isDesktop={isDesktop} />;
+        return <AIAssistant theme={theme} isDesktop={isDesktop} sessionResetTrigger={sessionResetTrigger} />;
     }
   };
 
@@ -81,12 +101,21 @@ export default function App() {
               toggleSidebar={toggleSidebar}
               isDesktop={isDesktop}
               title={currentScreen}
+              onNewSession={handleNewSession}
+              onSyncLiveData={handleSyncLiveData}
+              onOpenAuditLog={() => setAuditModalVisible(true)}
             />
             <View style={styles.screenWrapper}>
               {renderScreen()}
             </View>
           </View>
         </View>
+
+        <AuditLogModal 
+          visible={auditModalVisible}
+          onClose={() => setAuditModalVisible(false)}
+          theme={theme}
+        />
       </SafeAreaView>
     </SafeAreaProvider>
   );

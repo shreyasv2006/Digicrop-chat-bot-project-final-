@@ -4,7 +4,17 @@ import { Ionicons } from '@expo/vector-icons';
 import { SIZES } from '../constants/theme';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-export default function Header({ theme, isDarkMode, toggleTheme, toggleSidebar, isDesktop, title, onNewSession }) {
+export default function Header({ 
+  theme, 
+  isDarkMode, 
+  toggleTheme, 
+  toggleSidebar, 
+  isDesktop, 
+  title, 
+  onNewSession,
+  onSyncLiveData,
+  onOpenAuditLog,
+}) {
   const insets = useSafeAreaInsets();
   
   return (
@@ -73,14 +83,20 @@ export default function Header({ theme, isDarkMode, toggleTheme, toggleSidebar, 
         )}
 
         {/* Sync Button */}
-        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: theme.cardBg, borderColor: theme.border }]}>
+        <TouchableOpacity 
+          style={[styles.actionBtn, { backgroundColor: theme.cardBg, borderColor: theme.border }]}
+          onPress={onSyncLiveData}
+        >
           <Ionicons name="sync-outline" size={14} color={theme.primary} style={{ marginRight: 4 }} />
           <Text style={[styles.actionBtnText, { color: theme.text }]}>Sync Live Data</Text>
         </TouchableOpacity>
 
         {/* Audit Log */}
         {isDesktop && (
-          <TouchableOpacity style={[styles.actionBtn, { backgroundColor: theme.cardBg, borderColor: theme.border }]}>
+          <TouchableOpacity 
+            style={[styles.actionBtn, { backgroundColor: theme.cardBg, borderColor: theme.border }]}
+            onPress={onOpenAuditLog}
+          >
             <Ionicons name="shield-checkmark-outline" size={14} color={theme.accent} style={{ marginRight: 4 }} />
             <Text style={[styles.actionBtnText, { color: theme.text }]}>Audit Log</Text>
           </TouchableOpacity>

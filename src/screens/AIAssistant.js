@@ -11,13 +11,20 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-export default function AIAssistant({ theme, isDesktop }) {
+export default function AIAssistant({ theme, isDesktop, sessionResetTrigger }) {
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const [selectedDatasetId, setSelectedDatasetId] = useState('general');
   const [isLoading, setIsLoading] = useState(false);
   const [geminiConnectedStatus, setGeminiConnectedStatus] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
+
+  React.useEffect(() => {
+    if (sessionResetTrigger) {
+      setMessages([]);
+      setSelectedDatasetId('general');
+    }
+  }, [sessionResetTrigger]);
 
   const handleSendText = async (textToSend) => {
     const text = (textToSend || inputText).trim();
