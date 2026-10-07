@@ -16,8 +16,8 @@ import SavedConversations from './src/screens/SavedConversations';
 import Settings from './src/screens/Settings';
 
 export default function App() {
-  const [isDarkMode, setIsDarkMode] = useState(false);
-  const [currentScreen, setCurrentScreen] = useState('Dashboard');
+  const [isDarkMode, setIsDarkMode] = useState(true);
+  const [currentScreen, setCurrentScreen] = useState('AI Assistant');
   const { width } = useWindowDimensions();
   const isDesktop = width >= 768; // Tablet/Desktop breakpoint
   

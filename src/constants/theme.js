@@ -1,25 +1,33 @@
 export const COLORS = {
   light: {
-    background: '#F9FAFB',
+    background: '#F8FAFC',
     surface: '#FFFFFF',
-    primary: '#166534', // Deep forest green
-    secondary: '#22C55E', // Emerald green
-    accent: '#86EFAC', // Soft sage
-    text: '#111827',
-    textSecondary: '#4B5563',
-    border: '#E5E7EB',
+    surfaceDark: '#F1F5F9',
+    cardBg: '#FFFFFF',
+    border: '#E2E8F0',
+    primary: '#10b981', // Emerald
+    primaryDark: '#059669',
+    accent: '#06b6d4', // Cyan
+    alertRed: '#ef4444',
+    alertAmber: '#f59e0b',
+    text: '#0F172A',
+    textSecondary: '#64748B',
     cardShadow: 'rgba(0, 0, 0, 0.05)',
   },
   dark: {
-    background: '#111827', // Dark charcoal
-    surface: '#1F2937',
-    primary: '#22C55E',
-    secondary: '#166534',
-    accent: '#065F46',
-    text: '#F9FAFB',
-    textSecondary: '#9CA3AF',
-    border: '#374151',
-    cardShadow: 'rgba(0, 0, 0, 0.2)',
+    background: '#090D11', // Dark slate bg
+    surface: '#0C1218',    // Header & panel surface
+    surfaceDark: '#0F161E',// Card bg
+    cardBg: '#121A22',
+    border: '#1A2430',
+    primary: '#10b981', // Emerald
+    primaryDark: '#059669',
+    accent: '#06b6d4', // Cyan
+    alertRed: '#ef4444',
+    alertAmber: '#f59e0b',
+    text: '#F1F5F9',
+    textSecondary: '#94A3B8',
+    cardShadow: 'rgba(0, 0, 0, 0.4)',
   }
 };
 
@@ -30,13 +38,13 @@ export const SIZES = {
   lg: 24,
   xl: 32,
   xxl: 40,
-  radius: 16,
-  radiusLg: 24,
+  radius: 12,
+  radiusLg: 18,
 };
 
 export const FONTS = {
-  // Assuming default system font, could be customized with expo-font
   regular: 'System',
   medium: 'System',
   bold: 'System',
+  mono: 'monospace',
 };

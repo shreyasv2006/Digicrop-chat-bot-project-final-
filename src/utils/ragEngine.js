@@ -114,13 +114,13 @@ export function classifyUserIntent(userQuery, selectedDatasetId = 'general', con
 
   const activeFarmId = extractActiveFarmFromHistory(conversationHistory);
 
-  // 1. Greeting & Small Talk Check
+  // 1. Greeting, Identity & Small Talk Check
   const greetingPhrases = [
     'hi', 'hello', 'hey', 'hey bro', 'hi bro', 'hello bro', 'good morning', 'good afternoon',
-    'good evening', 'thanks', 'thank you', 'ok', 'okay', 'cool', 'awesome', 'sup', 'yo'
+    'good evening', 'thanks', 'thank you', 'ok', 'okay', 'cool', 'awesome', 'sup', 'yo',
+    'who are you', 'what are you', 'what can you do', 'tell me about yourself'
   ];
-  if (greetingPhrases.includes(qLower) || /^hi\b|^hello\b|^hey\b/i.test(qLower) && qTrim.split(/\s+/).length <= 3) {
-    // Make sure it's not asking a specific question like "hi what is ndvi"
+  if (greetingPhrases.includes(qLower) || (/^hi\b|^hello\b|^hey\b/i.test(qLower) && qTrim.split(/\s+/).length <= 3)) {
     if (!qLower.includes('ndvi') && !qLower.includes('soil') && !qLower.includes('farm') && !qLower.includes('f00')) {
       return { mode: 'GREETING_SMALLTALK', isStrict: false, activeFarmId };
     }

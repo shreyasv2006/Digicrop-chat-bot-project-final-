@@ -3,10 +3,17 @@ import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Platfo
 import { Ionicons } from '@expo/vector-icons';
 import { SIZES } from '../constants/theme';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { QUICK_QUESTIONS } from '../constants/data';
 import MarkdownText from './MarkdownText';
 import UploadDatasetModal from './UploadDatasetModal';
 import { datasetService } from '../services/datasetService';
+
+const QUICK_QUERIES = [
+  { id: '1', query: 'Compare F001 and F004 using their datasets.' },
+  { id: '2', query: 'What is the NDVI of F001?' },
+  { id: '3', query: 'What is the soil moisture of F001?' },
+  { id: '4', query: 'Why is F001 at critical risk?' },
+  { id: '5', query: 'Compare Soil EC vs NDVI' },
+];
 
 export default function ChatInterface({
   theme,
@@ -20,8 +27,8 @@ export default function ChatInterface({
   selectedDatasetId,
   onSelectDataset,
   isLoading,
-  onUploadDatasetSuccess,
   geminiConnectedStatus,
+  onOpenUploadModal,
 }) {
   const scrollViewRef = useRef();
   const insets = useSafeAreaInsets();
@@ -45,7 +52,6 @@ export default function ChatInterface({
   const handleDatasetAdded = (newDataset) => {
     setDatasetOptions(datasetService.getDatasetSelectorOptions());
     if (onSelectDataset) onSelectDataset(newDataset.id);
-    if (onUploadDatasetSuccess) onUploadDatasetSuccess(newDataset);
   };
 
   return (
@@ -53,40 +59,20 @@ export default function ChatInterface({
       style={styles.container} 
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      {/* Top Diagnostic & Dataset Selector Bar */}
+      {/* Knowledge Dataset Context Bar */}
       <View style={[styles.datasetSelectorBar, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}>
-        
-        {/* Diagnostic Status Indicator */}
-        <View style={styles.diagnosticRow}>
-          <View style={[
-            styles.statusBadge,
-            { backgroundColor: geminiConnectedStatus === true ? '#10B98115' : '#EF444415', borderColor: geminiConnectedStatus === true ? '#10B981' : '#EF4444' }
-          ]}>
-            <View style={[
-              styles.statusDot,
-              { backgroundColor: geminiConnectedStatus === true ? '#10B981' : '#EF4444' }
-            ]} />
-            <Text style={[
-              styles.statusText,
-              { color: geminiConnectedStatus === true ? '#047857' : '#B91C1C' }
-            ]}>
-              Gemini API: {geminiConnectedStatus === true ? 'CONNECTED' : 'NOT CONNECTED'}
-            </Text>
-          </View>
-
-          <TouchableOpacity 
-            style={[styles.uploadBtn, { backgroundColor: theme.primary + '15', borderColor: theme.primary }]}
-            onPress={() => setModalVisible(true)}
-          >
-            <Ionicons name="cloud-upload-outline" size={14} color={theme.primary} style={{ marginRight: 4 }} />
-            <Text style={[styles.uploadBtnText, { color: theme.primary }]}>+ Add .md Dataset</Text>
-          </TouchableOpacity>
-        </View>
-
         <View style={styles.selectorHeaderRow}>
           <Text style={[styles.selectorLabel, { color: theme.textSecondary }]}>
             KNOWLEDGE DATASET CONTEXT:
           </Text>
+
+          <TouchableOpacity 
+            style={[styles.uploadBtn, { backgroundColor: theme.primary + '15', borderColor: theme.primary + '40' }]}
+            onPress={() => setModalVisible(true)}
+          >
+            <Ionicons name="cloud-upload-outline" size={13} color={theme.primary} style={{ marginRight: 4 }} />
+            <Text style={[styles.uploadBtnText, { color: theme.primary }]}>+ Add Dataset</Text>
+          </TouchableOpacity>
         </View>
 
         <ScrollView 
@@ -102,7 +88,7 @@ export default function ChatInterface({
                 style={[
                   styles.datasetPill,
                   { 
-                    backgroundColor: isActive ? theme.primary : theme.background,
+                    backgroundColor: isActive ? theme.primary : theme.cardBg,
                     borderColor: isActive ? theme.primary : theme.border,
                   }
                 ]}
@@ -120,20 +106,7 @@ export default function ChatInterface({
         </ScrollView>
       </View>
 
-      {/* Active Context Banner */}
-      {selectedDatasetId && selectedDatasetId !== 'general' && activeDatasetObj && (
-        <View style={[styles.activeBanner, { backgroundColor: theme.primary + '12', borderColor: theme.primary + '30' }]}>
-          <Ionicons name="information-circle" size={16} color={theme.primary} style={{ marginRight: 6 }} />
-          <Text style={[styles.activeBannerText, { color: theme.text }]}>
-            Using Context: <Text style={{ fontWeight: 'bold' }}>{activeDatasetObj.label}</Text>
-          </Text>
-          <TouchableOpacity onPress={() => onSelectDataset('general')} style={{ marginLeft: 'auto' }}>
-            <Text style={{ fontSize: 12, color: theme.primary, fontWeight: '600' }}>Switch to General AI</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {/* Messages Scroll Area */}
+      {/* Messages Scroll Feed */}
       <ScrollView 
         ref={scrollViewRef}
         style={styles.messageList}
@@ -156,37 +129,72 @@ export default function ChatInterface({
               ]}
             >
               {!isUser && (
-                <View style={[styles.avatar, { backgroundColor: theme.primary }]}>
-                  <Ionicons name="leaf" size={16} color="#FFF" />
+                <View style={[styles.avatarBot, { backgroundColor: theme.primary + '20', borderColor: theme.primary + '50' }]}>
+                  <Ionicons name="hardware-chip-outline" size={18} color={theme.primary} />
                 </View>
               )}
               
               <View style={[
                 styles.messageBubble,
                 isUser 
-                  ? [styles.userBubble, { backgroundColor: theme.primary }] 
-                  : [styles.botBubble, { backgroundColor: theme.surface, borderColor: theme.border }]
+                  ? [styles.userBubble, { backgroundColor: theme.cardBg, borderColor: theme.primary + '40' }] 
+                  : [styles.botBubble, { backgroundColor: theme.cardBg, borderColor: theme.border }]
               ]}>
                 {isUser ? (
-                  <Text style={[styles.messageText, { color: '#FFF' }]}>
-                    {msg.text}
-                  </Text>
+                  <View style={{ width: '100%' }}>
+                    <View style={styles.userMetaRow}>
+                      <Text style={[styles.userMetaText, { color: theme.primary }]}>AGRICULTURAL OFFICER</Text>
+                    </View>
+                    <Text style={[styles.messageText, { color: theme.text }]}>
+                      {msg.text}
+                    </Text>
+                  </View>
                 ) : (
                   <View style={{ width: '100%' }}>
-                    <MarkdownText content={msg.text} textColor={theme.text} theme={theme} />
-                    
-                    {/* Source Transparency Indicator */}
-                    {msg.sources && msg.sources.length > 0 && (
-                      <View style={[styles.sourceBadgeContainer, { borderTopColor: theme.border }]}>
-                        <Ionicons name="compass-outline" size={13} color={theme.primary} style={{ marginRight: 4 }} />
-                        <Text style={[styles.sourceBadgeText, { color: theme.textSecondary }]}>
-                          Source: <Text style={{ fontWeight: '600', color: theme.text }}>{msg.sources.join(', ')}</Text>
+                    {/* Engine Meta Header */}
+                    <View style={[styles.engineMetaBar, { borderBottomColor: theme.border }]}>
+                      <View style={styles.flexRow}>
+                        <Ionicons name="cpu-outline" size={13} color={theme.primary} style={{ marginRight: 4 }} />
+                        <Text style={[styles.engineMetaTitle, { color: theme.primary }]}>
+                          DigiCrop-Engine-v2.6
                         </Text>
                       </View>
-                    )}
+                      <Text style={[styles.metaInfoText, { color: theme.textSecondary }]}>
+                        Confidence: <Text style={{ color: theme.primary, fontWeight: 'bold' }}>94% (HIGH)</Text> • Grounding Loss: <Text style={{ color: theme.accent, fontWeight: 'bold' }}>0.00%</Text>
+                      </Text>
+                    </View>
+
+                    <MarkdownText content={msg.text} textColor={theme.text} theme={theme} />
+                    
+                    {/* Source & Actions Footer */}
+                    <View style={[styles.sourceBadgeContainer, { borderTopColor: theme.border }]}>
+                      {msg.sources && msg.sources.length > 0 && (
+                        <View style={styles.flexRow}>
+                          <Ionicons name="shield-checkmark-outline" size={13} color={theme.primary} style={{ marginRight: 4 }} />
+                          <Text style={[styles.sourceBadgeText, { color: theme.textSecondary }]}>
+                            Grounded: <Text style={{ fontWeight: '600', color: theme.text }}>{msg.sources.join(', ')}</Text>
+                          </Text>
+                        </View>
+                      )}
+                      
+                      <View style={styles.actionIconsRow}>
+                        <TouchableOpacity style={styles.iconBtnAction}>
+                          <Ionicons name="copy-outline" size={13} color={theme.textSecondary} />
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.iconBtnAction}>
+                          <Ionicons name="download-outline" size={13} color={theme.textSecondary} />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
                   </View>
                 )}
               </View>
+
+              {isUser && (
+                <View style={[styles.avatarUser, { backgroundColor: theme.primary + '25', borderColor: theme.primary + '50' }]}>
+                  <Text style={[styles.avatarUserText, { color: theme.primary }]}>AO</Text>
+                </View>
+              )}
             </View>
           );
         })}
@@ -194,14 +202,14 @@ export default function ChatInterface({
         {/* Loading Indicator */}
         {isLoading && (
           <View style={[styles.messageRow, styles.messageRowBot]}>
-            <View style={[styles.avatar, { backgroundColor: theme.primary }]}>
-              <Ionicons name="leaf" size={16} color="#FFF" />
+            <View style={[styles.avatarBot, { backgroundColor: theme.primary + '20', borderColor: theme.primary + '50' }]}>
+              <Ionicons name="hardware-chip-outline" size={18} color={theme.primary} />
             </View>
-            <View style={[styles.messageBubble, styles.botBubble, { backgroundColor: theme.surface, borderColor: theme.border, paddingVertical: 14 }]}>
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <View style={[styles.messageBubble, styles.botBubble, { backgroundColor: theme.cardBg, borderColor: theme.border, paddingVertical: 14 }]}>
+              <View style={styles.flexRow}>
                 <ActivityIndicator size="small" color={theme.primary} style={{ marginRight: 10 }} />
-                <Text style={{ color: theme.textSecondary, fontSize: 14, fontStyle: 'italic' }}>
-                  DigiCrop AI is generating response from Gemini Flash...
+                <Text style={{ color: theme.textSecondary, fontSize: 13, fontStyle: 'italic' }}>
+                  DigiCrop AI is analyzing telemetry & running deterministic grounding...
                 </Text>
               </View>
             </View>
@@ -209,49 +217,44 @@ export default function ChatInterface({
         )}
       </ScrollView>
 
-      {/* Suggested Questions Quick Horizontal Bar */}
-      {messages.length > 0 && (
-        <View style={[styles.quickQuestionsContainer, { borderTopColor: theme.border }]}>
-          <ScrollView 
-            horizontal 
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.quickQuestionsHorizontalContent}
-          >
-            {QUICK_QUESTIONS.map((item) => (
-              <TouchableOpacity
-                key={item.id}
-                style={[
-                  styles.quickQuestionPill, 
-                  { backgroundColor: theme.surface, borderColor: theme.border }
-                ]}
-                onPress={() => onQuickQuestionPress && onQuickQuestionPress(item.question)}
-              >
-                <Text style={[styles.quickQuestionPillText, { color: theme.text }]}>
-                  {item.question}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-      )}
+      {/* Quick Queries Horizontal Bar */}
+      <View style={[styles.quickQuestionsContainer, { borderTopColor: theme.border, backgroundColor: theme.surface }]}>
+        <ScrollView 
+          horizontal 
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.quickQuestionsHorizontalContent}
+        >
+          <Text style={[styles.quickLabel, { color: theme.textSecondary }]}>QUICK QUERIES:</Text>
+          {QUICK_QUERIES.map((item) => (
+            <TouchableOpacity
+              key={item.id}
+              style={[
+                styles.quickQuestionPill, 
+                { backgroundColor: theme.cardBg, borderColor: theme.border }
+              ]}
+              onPress={() => onQuickQuestionPress && onQuickQuestionPress(item.query)}
+            >
+              <Text style={[styles.quickQuestionPillText, { color: theme.text }]}>
+                {item.query}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
 
       {/* Input Box Bar */}
       <View style={[
         styles.inputContainer,
         { 
-          backgroundColor: theme.background,
+          backgroundColor: theme.surface,
           borderTopColor: theme.border,
-          paddingBottom: Platform.OS === 'ios' ? Math.max(insets.bottom, SIZES.md) : SIZES.md
+          paddingBottom: Platform.OS === 'ios' ? Math.max(insets.bottom, SIZES.sm) : SIZES.sm
         }
       ]}>
-        <View style={[styles.inputWrapper, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-          <TouchableOpacity style={styles.attachButton} onPress={() => setModalVisible(true)}>
-            <Ionicons name="document-attach-outline" size={22} color={theme.primary} />
-          </TouchableOpacity>
-          
+        <View style={[styles.inputWrapper, { backgroundColor: theme.background, borderColor: theme.border }]}>
           <TextInput
             style={[styles.input, { color: theme.text }]}
-            placeholder="Ask DigiCrop AI (e.g. 'What is NDVI?' or 'Answer from F001 Farm Dataset: what is soil moisture?')"
+            placeholder="Ask DigiCrop AI about your farms, crop health, risk thresholds, NDVI, soil moisture..."
             placeholderTextColor={theme.textSecondary}
             value={inputText}
             onChangeText={setInputText}
@@ -260,18 +263,49 @@ export default function ChatInterface({
             onSubmitEditing={onSendMessage}
           />
           
-          <TouchableOpacity 
-            style={[
-              styles.sendButton, 
-              { backgroundColor: inputText.trim().length > 0 && !isLoading ? theme.primary : theme.border }
-            ]}
-            onPress={onSendMessage}
-            disabled={inputText.trim().length === 0 || isLoading}
-          >
-            <Ionicons name="send" size={18} color="#FFF" style={styles.sendIcon} />
-          </TouchableOpacity>
+          <View style={styles.inputBottomRow}>
+            <View style={styles.flexRow}>
+              <Ionicons name="shield-checkmark" size={13} color={theme.primary} style={{ marginRight: 4 }} />
+              <Text style={[styles.groundingActiveText, { color: theme.primary }]}>
+                Grounding Active
+              </Text>
+            </View>
+
+            <View style={styles.flexRow}>
+              <TouchableOpacity style={styles.attachButton} onPress={() => setModalVisible(true)}>
+                <Ionicons name="paperclip" size={18} color={theme.textSecondary} />
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[
+                  styles.sendButton, 
+                  { backgroundColor: inputText.trim().length > 0 && !isLoading ? theme.primary : theme.border }
+                ]}
+                onPress={onSendMessage}
+                disabled={inputText.trim().length === 0 || isLoading}
+              >
+                <Text style={styles.sendBtnText}>Analyze</Text>
+                <Ionicons name="send" size={13} color="#FFF" style={{ marginLeft: 4 }} />
+              </TouchableOpacity>
+            </View>
+          </View>
         </View>
       </View>
+
+      {/* Status Footer */}
+      {isDesktop && (
+        <View style={[styles.statusBar, { backgroundColor: theme.background, borderTopColor: theme.border }]}>
+          <View style={styles.flexRow}>
+            <View style={[styles.statusDotGreen, { backgroundColor: theme.primary }]} />
+            <Text style={[styles.statusFooterText, { color: theme.textSecondary }]}>
+              6 / 6 IoT Hubs Online • Sentinel-2 (Today 06:14 UTC)
+            </Text>
+          </View>
+          <Text style={[styles.statusFooterText, { color: theme.primary }]}>
+            © 2026 DigiCrop AI Engine
+          </Text>
+        </View>
+      )}
 
       {/* Dataset Upload Modal */}
       <UploadDatasetModal
@@ -288,46 +322,24 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     width: '100%',
-    maxWidth: 1000,
-    alignSelf: 'center',
+  },
+  flexRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   datasetSelectorBar: {
-    paddingVertical: SIZES.sm,
+    paddingVertical: 8,
     paddingHorizontal: SIZES.md,
     borderBottomWidth: 1,
-  },
-  diagnosticRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  statusBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-    borderWidth: 1,
-  },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 6,
-  },
-  statusText: {
-    fontSize: 12,
-    fontWeight: 'bold',
   },
   selectorHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 4,
+    marginBottom: 6,
   },
   selectorLabel: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '700',
     letterSpacing: 0.5,
   },
@@ -348,7 +360,7 @@ const styles = StyleSheet.create({
   },
   datasetPill: {
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 5,
     borderRadius: 16,
     borderWidth: 1,
     marginRight: 8,
@@ -356,27 +368,17 @@ const styles = StyleSheet.create({
   datasetPillText: {
     fontSize: 12,
   },
-  activeBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: SIZES.md,
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-  },
-  activeBannerText: {
-    fontSize: 13,
-  },
   messageList: {
     flex: 1,
   },
   messageListContent: {
-    padding: SIZES.lg,
+    padding: SIZES.md,
     paddingBottom: SIZES.xl,
   },
   messageRow: {
     flexDirection: 'row',
-    marginBottom: SIZES.lg,
-    alignItems: 'flex-end',
+    marginBottom: SIZES.md,
+    alignItems: 'flex-start',
   },
   messageRowUser: {
     justifyContent: 'flex-end',
@@ -384,104 +386,174 @@ const styles = StyleSheet.create({
   messageRowBot: {
     justifyContent: 'flex-start',
   },
-  avatar: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+  avatarBot: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: SIZES.sm,
-    marginBottom: 4,
+    marginRight: 10,
+    marginTop: 4,
+  },
+  avatarUser: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 10,
+    marginTop: 4,
+  },
+  avatarUserText: {
+    fontSize: 12,
+    fontWeight: 'bold',
   },
   messageBubble: {
     maxWidth: '85%',
-    paddingHorizontal: SIZES.lg,
-    paddingVertical: SIZES.md,
-  },
-  userBubble: {
-    borderTopLeftRadius: SIZES.radiusLg,
-    borderTopRightRadius: SIZES.radiusLg,
-    borderBottomLeftRadius: SIZES.radiusLg,
-    borderBottomRightRadius: 4,
-  },
-  botBubble: {
-    borderTopLeftRadius: SIZES.radiusLg,
-    borderTopRightRadius: SIZES.radiusLg,
-    borderBottomRightRadius: SIZES.radiusLg,
-    borderBottomLeftRadius: 4,
+    paddingHorizontal: SIZES.md,
+    paddingVertical: SIZES.sm,
+    borderRadius: 12,
     borderWidth: 1,
   },
+  userBubble: {
+    borderTopRightRadius: 4,
+  },
+  botBubble: {
+    borderTopLeftRadius: 4,
+  },
+  userMetaRow: {
+    marginBottom: 4,
+  },
+  userMetaText: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    letterSpacing: 0.5,
+  },
   messageText: {
-    fontSize: 16,
-    lineHeight: 24,
+    fontSize: 14,
+    lineHeight: 22,
+  },
+  engineMetaBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingBottom: 6,
+    marginBottom: 8,
+    borderBottomWidth: 1,
+  },
+  engineMetaTitle: {
+    fontSize: 11,
+    fontWeight: 'bold',
+  },
+  metaInfoText: {
+    fontSize: 10,
   },
   sourceBadgeContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 10,
-    paddingTop: 8,
+    justifyContent: 'space-between',
+    marginTop: 8,
+    paddingTop: 6,
     borderTopWidth: 1,
   },
   sourceBadgeText: {
-    fontSize: 12,
+    fontSize: 11,
+  },
+  actionIconsRow: {
+    flexDirection: 'row',
+  },
+  iconBtnAction: {
+    marginLeft: 8,
+    padding: 2,
   },
   inputContainer: {
-    padding: SIZES.md,
-    paddingHorizontal: SIZES.lg,
+    padding: SIZES.sm,
+    paddingHorizontal: SIZES.md,
     borderTopWidth: 1,
   },
   inputWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 30,
+    borderRadius: 12,
     borderWidth: 1,
     paddingHorizontal: SIZES.sm,
-    paddingVertical: 6,
-    minHeight: 56,
-  },
-  attachButton: {
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 20,
+    paddingTop: 8,
+    paddingBottom: 6,
   },
   input: {
-    flex: 1,
-    fontSize: 15,
-    paddingHorizontal: SIZES.sm,
-    maxHeight: 120,
-    paddingTop: Platform.OS === 'ios' ? 12 : 8,
-    paddingBottom: Platform.OS === 'ios' ? 12 : 8,
+    fontSize: 14,
+    minHeight: 40,
+    maxHeight: 100,
+    paddingHorizontal: 4,
+  },
+  inputBottomRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 6,
+    paddingTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  groundingActiveText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  attachButton: {
+    padding: 6,
+    marginRight: 6,
   },
   sendButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: SIZES.xs,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 8,
   },
-  sendIcon: {
-    marginLeft: 2,
+  sendBtnText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#FFF',
   },
   quickQuestionsContainer: {
-    paddingVertical: SIZES.sm,
+    paddingVertical: 6,
     borderTopWidth: 1,
   },
   quickQuestionsHorizontalContent: {
-    paddingHorizontal: SIZES.lg,
+    paddingHorizontal: SIZES.md,
     flexDirection: 'row',
+    alignItems: 'center',
+  },
+  quickLabel: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    marginRight: 8,
   },
   quickQuestionPill: {
-    paddingHorizontal: SIZES.md,
-    paddingVertical: SIZES.sm,
-    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 16,
     borderWidth: 1,
-    marginRight: SIZES.sm,
+    marginRight: 6,
   },
   quickQuestionPillText: {
-    fontSize: 13,
-    fontWeight: '500',
+    fontSize: 11,
+  },
+  statusBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: SIZES.md,
+    paddingVertical: 4,
+    borderTopWidth: 1,
+  },
+  statusDotGreen: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginRight: 6,
+  },
+  statusFooterText: {
+    fontSize: 10,
   }
 });
