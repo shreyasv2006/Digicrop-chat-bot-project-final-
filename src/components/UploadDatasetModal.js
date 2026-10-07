@@ -11,16 +11,29 @@ export default function UploadDatasetModal({ visible, onClose, onDatasetAdded, t
   const [description, setDescription] = useState('');
   const [markdownContent, setMarkdownContent] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+  const [fileNameUploaded, setFileNameUploaded] = useState('');
+  const [isSuccess, setIsSuccess] = useState(false);
 
   const handleFileUpload = (event) => {
     if (Platform.OS === 'web' && event.target && event.target.files?.[0]) {
       const file = event.target.files[0];
+      setFileNameUploaded(file.name);
+      
       const reader = new FileReader();
       reader.onload = (e) => {
-        const text = e.target.result;
+        const text = e.target.result || '';
         setMarkdownContent(text);
+        
+        // Auto-extract Farm ID if present (e.g. F009)
+        const farmMatch = text.match(/farm_id:\s*(F[0-9]{3}|F00[0-9])|F[0-9]{3}|F00[0-9]/i);
+        if (farmMatch && !farmId) {
+          const matchedFarm = (farmMatch[1] || farmMatch[0]).toUpperCase();
+          setFarmId(matchedFarm);
+        }
+
         if (!datasetName) {
-          setDatasetName(file.name.replace('.md', '').toUpperCase() + ' Dataset');
+          const cleanName = file.name.replace(/\.[^/.]+$/, '').toUpperCase().replace(/[^A-Z0-9_\-\s]/g, ' ');
+          setDatasetName(cleanName + ' Dataset');
         }
       };
       reader.readAsText(file);
@@ -33,41 +46,49 @@ export default function UploadDatasetModal({ visible, onClose, onDatasetAdded, t
       return;
     }
     if (!markdownContent.trim()) {
-      setErrorMsg('Markdown Content is required.');
+      setErrorMsg('Dataset content is required. Please paste text or select a file.');
       return;
     }
 
     let rawMd = markdownContent;
     if (!rawMd.startsWith('---')) {
       rawMd = `---
-name: ${datasetName}
-category: ${category || 'Farm Data'}
-farm_id: ${farmId || ''}
-description: ${description || 'User provided dataset'}
+name: ${datasetName.trim()}
+category: ${category.trim() || 'Farm Data'}
+farm_id: ${farmId.trim() || ''}
+description: ${description.trim() || 'Custom uploaded knowledge dataset.'}
 ---
 
-${markdownContent}`;
+${markdownContent.trim()}`;
     }
 
-    const newDs = datasetService.addCustomDataset(rawMd, `${datasetName.toLowerCase().replace(/[^a-z0-9]/g, '_')}.md`);
-    setErrorMsg('');
-    setDatasetName('');
-    setFarmId('');
-    setDescription('');
-    setMarkdownContent('');
+    const cleanFileName = (fileNameUploaded || datasetName.toLowerCase().replace(/[^a-z0-9]/g, '_') + '.md');
+    const newDs = datasetService.addCustomDataset(rawMd, cleanFileName);
     
-    if (onDatasetAdded) onDatasetAdded(newDs);
-    onClose();
+    setErrorMsg('');
+    setIsSuccess(true);
+
+    setTimeout(() => {
+      setDatasetName('');
+      setFarmId('');
+      setDescription('');
+      setMarkdownContent('');
+      setFileNameUploaded('');
+      setIsSuccess(false);
+
+      if (onDatasetAdded) onDatasetAdded(newDs);
+      onClose();
+    }, 600);
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.overlay}>
         <View style={[styles.modalCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
           <View style={styles.header}>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <Ionicons name="document-text" size={24} color={theme.primary} style={{ marginRight: 8 }} />
-              <Text style={[styles.title, { color: theme.text }]}>Add Custom .md Dataset</Text>
+              <Ionicons name="sparkles-outline" size={22} color={theme.primary} style={{ marginRight: 8 }} />
+              <Text style={[styles.title, { color: theme.text }]}>Train & Add Custom Dataset</Text>
             </View>
             <TouchableOpacity onPress={onClose}>
               <Ionicons name="close" size={24} color={theme.textSecondary} />
@@ -77,33 +98,61 @@ ${markdownContent}`;
           <ScrollView style={styles.body} showsVerticalScrollIndicator={false}>
             {errorMsg ? (
               <View style={[styles.errorBox, { backgroundColor: '#FEE2E2', borderColor: '#EF4444' }]}>
-                <Text style={{ color: '#DC2626', fontSize: 13 }}>{errorMsg}</Text>
+                <Ionicons name="alert-circle-outline" size={18} color="#DC2626" style={{ marginRight: 6 }} />
+                <Text style={{ color: '#DC2626', fontSize: 13, flex: 1 }}>{errorMsg}</Text>
               </View>
             ) : null}
 
-            {Platform.OS === 'web' && (
-              <View style={styles.fileUploadBox}>
-                <Text style={[styles.label, { color: theme.textSecondary }]}>Upload File (.md)</Text>
+            {isSuccess ? (
+              <View style={[styles.errorBox, { backgroundColor: '#D1FAE5', borderColor: '#10B981' }]}>
+                <Ionicons name="checkmark-circle-outline" size={20} color="#047857" style={{ marginRight: 8 }} />
+                <Text style={{ color: '#047857', fontSize: 14, fontWeight: 'bold' }}>
+                  ✅ Dataset Trained & Loaded into DigiCrop AI!
+                </Text>
+              </View>
+            ) : null}
+
+            {/* Universal File Upload Box */}
+            <View style={[styles.fileUploadCard, { backgroundColor: theme.background, borderColor: theme.primary + '40' }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+                <Ionicons name="cloud-upload-outline" size={20} color={theme.primary} style={{ marginRight: 6 }} />
+                <Text style={[styles.label, { color: theme.text, marginTop: 0, marginBottom: 0 }]}>
+                  Upload File (.md, .txt, .csv, .json, docs)
+                </Text>
+              </View>
+              <Text style={{ fontSize: 12, color: theme.textSecondary, marginBottom: 10 }}>
+                Select any markdown, text, or data file from your computer to train DigiCrop AI on the spot:
+              </Text>
+              
+              {Platform.OS === 'web' && (
                 <input 
                   type="file" 
-                  accept=".md,.txt" 
+                  accept="*/*"
                   onChange={handleFileUpload}
                   style={{
-                    padding: '8px',
+                    padding: '10px 14px',
                     borderRadius: '8px',
                     border: `1px solid ${theme.border}`,
-                    background: theme.background,
+                    background: theme.surface,
                     color: theme.text,
                     cursor: 'pointer',
+                    width: '100%',
+                    fontSize: '13px',
                   }}
                 />
-              </View>
-            )}
+              )}
+              {fileNameUploaded ? (
+                <Text style={{ fontSize: 12, color: theme.primary, fontWeight: '600', marginTop: 6 }}>
+                  📄 Loaded File: {fileNameUploaded}
+                </Text>
+              ) : null}
+            </View>
 
-            <Text style={[styles.label, { color: theme.textSecondary }]}>Dataset Name *</Text>
+            {/* Dataset Form Inputs */}
+            <Text style={[styles.label, { color: theme.textSecondary }]}>Dataset Title / Name *</Text>
             <TextInput
               style={[styles.input, { backgroundColor: theme.background, color: theme.text, borderColor: theme.border }]}
-              placeholder="e.g. F009 Farm Dataset or Soil Hydro Matrix"
+              placeholder="e.g. F009 Farm Telemetry or Soil Nitrogen Protocol"
               placeholderTextColor={theme.textSecondary}
               value={datasetName}
               onChangeText={setDatasetName}
@@ -141,10 +190,10 @@ ${markdownContent}`;
               onChangeText={setDescription}
             />
 
-            <Text style={[styles.label, { color: theme.textSecondary }]}>Markdown Content *</Text>
+            <Text style={[styles.label, { color: theme.textSecondary }]}>Dataset Content / Markdown Text *</Text>
             <TextInput
               style={[styles.input, styles.textArea, { backgroundColor: theme.background, color: theme.text, borderColor: theme.border }]}
-              placeholder="# Dataset Title&#10;Key observations, tables, sensor readings..."
+              placeholder="# Dataset Title&#10;Paste observations, sensor readings, soil metrics, or farm notes here..."
               placeholderTextColor={theme.textSecondary}
               value={markdownContent}
               onChangeText={setMarkdownContent}
@@ -158,7 +207,8 @@ ${markdownContent}`;
               <Text style={{ color: theme.textSecondary, fontWeight: '600' }}>Cancel</Text>
             </TouchableOpacity>
             <TouchableOpacity style={[styles.saveBtn, { backgroundColor: theme.primary }]} onPress={handleSave}>
-              <Text style={{ color: '#FFF', fontWeight: 'bold' }}>Save Dataset</Text>
+              <Ionicons name="flash-outline" size={16} color="#FFF" style={{ marginRight: 6 }} />
+              <Text style={{ color: '#FFF', fontWeight: 'bold' }}>Train AI & Save Dataset</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -170,14 +220,14 @@ ${markdownContent}`;
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: SIZES.md,
   },
   modalCard: {
     width: '100%',
-    maxWidth: 650,
+    maxWidth: 680,
     maxHeight: '90%',
     borderRadius: SIZES.radiusLg,
     borderWidth: 1,
@@ -218,14 +268,19 @@ const styles = StyleSheet.create({
     minHeight: 140,
     textAlignVertical: 'top',
   },
-  fileUploadBox: {
+  fileUploadCard: {
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
     marginBottom: 10,
   },
   errorBox: {
-    padding: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
     borderRadius: 8,
     borderWidth: 1,
-    marginBottom: 10,
+    marginBottom: 12,
   },
   footer: {
     flexDirection: 'row',
@@ -242,6 +297,8 @@ const styles = StyleSheet.create({
     marginRight: 10,
   },
   saveBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 20,
     paddingVertical: 10,
     borderRadius: 20,
