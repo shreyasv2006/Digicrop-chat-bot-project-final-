@@ -1,5 +1,5 @@
 /**
- * DigiCrop AI - RAG Engine, Intent Classifier & Anti-Hallucination Guardrails
+ * DigiCrop AI - Advanced RAG Engine, Intent Classifier & Targeted Chunking
  */
 
 import farmsMd from '../datasets/farms.md';
@@ -11,9 +11,10 @@ import weatherDataMd from '../datasets/weather_data.md';
 import alertsMd from '../datasets/alerts.md';
 import cropsMd from '../datasets/crops.md';
 import agriculturalGuidelinesMd from '../datasets/agricultural_guidelines.md';
+import { SYSTEM_PROMPT } from '../config/systemPrompt';
 
 /**
- * Utility to parse simple Front Matter without external dependencies
+ * Simple Front Matter Parser
  */
 export function parseFrontMatter(rawContent) {
   if (!rawContent || typeof rawContent !== 'string') {
@@ -78,48 +79,132 @@ export function getBuiltinDatasets() {
 }
 
 /**
- * Classify User Intent:
- * MODE A: General Agriculture Question (Does not ask about a specific farm or dataset measurement)
- * MODE B: Farm / Dataset Analysis (Asks about a farm ID, specific dataset, telemetry, alerts, risk, or farm comparison)
+ * Active Farm Extraction from Conversation History
  */
-export function classifyUserIntent(userQuery, selectedDatasetId = 'general') {
-  if (!userQuery) return { mode: 'MODE_A_GENERAL', isStrict: false };
-
-  const qLower = userQuery.toLowerCase().trim();
-
-  // Strict dataset-only phrases
-  const strictKeywords = [
-    'only from', 'strictly from', 'only use', 'strictly use',
-    'don\'t use general', 'do not use general', 'do not invent', 'only according to'
-  ];
-  const isStrict = strictKeywords.some(kw => qLower.includes(kw));
-
-  // Keywords that indicate farm/dataset inquiry
-  const farmKeywords = [
-    'farm', 'farms', 'f001', 'f002', 'f003', 'f004', 'f005', 'f006', 'f007', 'f008', 'f009',
-    'this farm', 'my farm', 'the farm', 'its soil', 'its ndvi', 'its risk', 'its moisture',
-    'compare f001', 'compare f004', 'dataset', 'telemetry', 'sensor', 'alert', 'alerts'
-  ];
-
-  const hasFarmRef = farmKeywords.some(kw => qLower.includes(kw)) || /f00[0-9]/i.test(qLower);
-  const isSelected = selectedDatasetId && selectedDatasetId !== 'general';
-
-  if (hasFarmRef || isSelected || isStrict) {
-    return { mode: 'MODE_B_FARM_DATASET', isStrict };
+export function extractActiveFarmFromHistory(conversationHistory = []) {
+  if (!Array.isArray(conversationHistory) || conversationHistory.length === 0) {
+    return null;
   }
 
-  return { mode: 'MODE_A_GENERAL', isStrict: false };
+  for (let i = conversationHistory.length - 1; i >= 0; i--) {
+    const msg = conversationHistory[i];
+    const text = (msg.text || msg.content || '').toUpperCase();
+    const match = text.match(/F[0-9]{3}|F00[0-9]/);
+    if (match) {
+      return match[0];
+    }
+  }
+
+  return null;
+}
+
+/**
+ * 5-Mode Intent Classifier:
+ * 1. GREETING_SMALLTALK: "hi", "hello", "hey bro", "thanks", "ok"
+ * 2. VAGUE_UNDERSPECIFIED: "tell me about my farm", "what's the status", "help"
+ * 3. FARM_DATA_QUESTION: Specific farm ID or farm telemetry metric
+ * 4. GENERAL_AGRICULTURE: Farming concepts, crops, soil science, irrigation
+ * 5. OFF_TOPIC: Non-agricultural queries
+ */
+export function classifyUserIntent(userQuery, selectedDatasetId = 'general', conversationHistory = []) {
+  if (!userQuery) return { mode: 'GREETING_SMALLTALK', isStrict: false, activeFarmId: null };
+
+  const qTrim = userQuery.trim();
+  const qLower = qTrim.toLowerCase();
+
+  const activeFarmId = extractActiveFarmFromHistory(conversationHistory);
+
+  // 1. Greeting & Small Talk Check
+  const greetingPhrases = [
+    'hi', 'hello', 'hey', 'hey bro', 'hi bro', 'hello bro', 'good morning', 'good afternoon',
+    'good evening', 'thanks', 'thank you', 'ok', 'okay', 'cool', 'awesome', 'sup', 'yo'
+  ];
+  if (greetingPhrases.includes(qLower) || /^hi\b|^hello\b|^hey\b/i.test(qLower) && qTrim.split(/\s+/).length <= 3) {
+    // Make sure it's not asking a specific question like "hi what is ndvi"
+    if (!qLower.includes('ndvi') && !qLower.includes('soil') && !qLower.includes('farm') && !qLower.includes('f00')) {
+      return { mode: 'GREETING_SMALLTALK', isStrict: false, activeFarmId };
+    }
+  }
+
+  // 2. Vague & Underspecified Check
+  const vaguePhrases = [
+    'help', 'tell me about my farm', 'what\'s the status', 'how is my farm',
+    'how are the crops doing', 'show farm status', 'farm status', 'my farm status',
+    'what is happening with my farm', 'give me details', 'status'
+  ];
+  const isSelected = selectedDatasetId && selectedDatasetId !== 'general';
+  const hasSpecificFarmId = /f[0-9]{3}|f00[0-9]/i.test(qLower);
+
+  if ((vaguePhrases.includes(qLower) || qLower === 'help') && !hasSpecificFarmId && !activeFarmId && !isSelected) {
+    return { mode: 'VAGUE_UNDERSPECIFIED', isStrict: false, activeFarmId: null };
+  }
+
+  // 3. Off-Topic Check (Non-agriculture)
+  const offTopicKeywords = [
+    'cricket', 'football', 'movie', 'actor', 'president', 'capital of france', 'joke',
+    'who won', 'bitcoin', 'crypto', 'stock market', 'iphone', 'play station', 'game'
+  ];
+  if (offTopicKeywords.some(kw => qLower.includes(kw))) {
+    return { mode: 'OFF_TOPIC', isStrict: false, activeFarmId: null };
+  }
+
+  // 4. Farm Data Question Check
+  const farmTelemetryKeywords = [
+    'f001', 'f002', 'f003', 'f004', 'f005', 'f006', 'f007', 'f008', 'f009', 'f999',
+    'ndvi', 'soil moisture', 'soil ph', 'ec', 'electrical conductivity', 'ndre', 'ndwi',
+    'evi', 'telemetry', 'sensor', 'alert', 'alerts', 'root-zone', 'drip', 'fertigation',
+    'risk', 'curling', 'scorching', 'vineyard', 'temperature', 'humidity', 'rainfall',
+    'its moisture', 'its ndvi', 'its soil', 'its status', 'and f004', 'and f001'
+  ];
+
+  const mentionsFarm = farmTelemetryKeywords.some(kw => qLower.includes(kw)) || hasSpecificFarmId;
+  const isFollowUpWithContext = (qLower.includes('its') || qLower.includes('and')) && activeFarmId !== null;
+
+  if (mentionsFarm || isSelected || isFollowUpWithContext) {
+    return { mode: 'FARM_DATA_QUESTION', isStrict: false, activeFarmId };
+  }
+
+  // 5. General Agriculture Question
+  return { mode: 'GENERAL_AGRICULTURE', isStrict: false, activeFarmId: null };
 }
 
 /**
  * Pre-Check Short-Circuiting Guardrail
- * Catches missing datasets, unselected generic farm queries, and explicit dataset switches BEFORE Gemini API calls
  */
-export function preCheckUserQuery(userQuery, availableDatasets, selectedDatasetId = 'general') {
+export function preCheckUserQuery(userQuery, availableDatasets, selectedDatasetId = 'general', conversationHistory = []) {
   if (!userQuery) return { handled: false };
   const qLower = userQuery.trim().toLowerCase();
 
-  // 1. Explicit dataset selection / switch command
+  const { mode, activeFarmId } = classifyUserIntent(userQuery, selectedDatasetId, conversationHistory);
+
+  // Mode 1: Greeting
+  if (mode === 'GREETING_SMALLTALK') {
+    return {
+      handled: true,
+      answer: "Hello! 👋 I'm DigiCrop AI, your agricultural assistant.\n\nHow can I help you today? Here are a few things you can ask me:\n- **Crop Advice**: Best practices for grapes or wheat\n- **Telemetry Metrics**: Ask about NDVI or soil moisture\n- **Farm Analysis**: Check status for **F001** (Nashik Vineyard) or **F004** (Pune Wheat)",
+      sources: ["DigiCrop Guidance"],
+    };
+  }
+
+  // Mode 2: Vague / Underspecified
+  if (mode === 'VAGUE_UNDERSPECIFIED') {
+    return {
+      handled: true,
+      answer: "Which farm would you like to inspect: **F001** (Nashik Vineyard) or **F004** (Pune Wheat)? And do you want to check NDVI, soil moisture, weather, or active alerts?",
+      sources: ["DigiCrop Guidance"],
+    };
+  }
+
+  // Mode 5: Off-Topic
+  if (mode === 'OFF_TOPIC') {
+    return {
+      handled: true,
+      answer: "I specialize in farming, crops, and agricultural telemetry. How can I help with your crops or farm datasets today?",
+      sources: ["DigiCrop Guidance"],
+    };
+  }
+
+  // Explicit Dataset Selection Command
   const switchMatch = qLower.match(/^(?:use|switch to|select)\s+(?:the\s+)?([a-z0-9_\-\s]+?)(?:\s+dataset)?$/i);
   if (switchMatch) {
     const rawTarget = switchMatch[1].trim().toLowerCase();
@@ -132,37 +217,18 @@ export function preCheckUserQuery(userQuery, availableDatasets, selectedDatasetI
     if (foundDs) {
       return {
         handled: true,
-        answer: `Using **${foundDs.name}**. What would you like to analyze or ask about this dataset?`,
+        answer: `Selected **${foundDs.name}**. What specific metric (NDVI, soil moisture, alerts) would you like to check?`,
         sources: [foundDs.name],
         newSelectedDatasetId: foundDs.id,
       };
     }
   }
 
-  // 2. Generic unspecific farm query when no farm is selected
-  const isGenericFarmQuery = (
-    qLower.includes('how is the farm doing') ||
-    qLower.includes('how is my farm') ||
-    qLower.includes('what\'s happening with my farm') ||
-    qLower.includes('how are the crops doing') ||
-    qLower.includes('show farm status')
-  );
+  // Unknown Farm ID Check (e.g. F999)
+  const farmIdMatch = qLower.match(/f[0-9]{3}|f00[0-9]/i);
+  const targetFarmId = (farmIdMatch ? farmIdMatch[0] : activeFarmId)?.toUpperCase();
 
-  const isFarmSelected = selectedDatasetId && selectedDatasetId !== 'general';
-  const mentionsSpecificFarm = /f00[0-9]|farm\s*[0-9]+/i.test(qLower);
-
-  if (isGenericFarmQuery && !isFarmSelected && !mentionsSpecificFarm) {
-    return {
-      handled: true,
-      answer: "I can help analyze a farm, but I need a farm dataset or farm ID first. You can select a dataset such as **F001 Farm Dataset** or ask about a specific farm ID.",
-      sources: ["DigiCrop Guidance"],
-    };
-  }
-
-  // 3. Query specifies a Farm ID (e.g. F009) that does NOT exist in available datasets
-  const farmIdMatch = qLower.match(/f00[0-9]|f[0-9]{3}/i);
-  if (farmIdMatch) {
-    const targetFarmId = farmIdMatch[0].toUpperCase();
+  if (targetFarmId) {
     const farmDs = availableDatasets.find(d => 
       (d.farmId && d.farmId.toUpperCase() === targetFarmId) ||
       d.name.toUpperCase().includes(targetFarmId) ||
@@ -171,16 +237,9 @@ export function preCheckUserQuery(userQuery, availableDatasets, selectedDatasetI
     );
 
     if (!farmDs) {
-      if (qLower.includes('risk')) {
-        return {
-          handled: true,
-          answer: `I can't determine ${targetFarmId}'s risk without its farm data.`,
-          sources: ["System Guardrail"],
-        };
-      }
       return {
         handled: true,
-        answer: `I don't have dataset or telemetry information for farm ${targetFarmId}. Please select or upload the ${targetFarmId} dataset.`,
+        answer: `I don't have dataset or telemetry information for farm **${targetFarmId}**. Please select or upload the ${targetFarmId} dataset to inspect its metrics.`,
         sources: ["System Guardrail"],
       };
     }
@@ -190,67 +249,107 @@ export function preCheckUserQuery(userQuery, availableDatasets, selectedDatasetI
 }
 
 /**
- * Intelligent Dataset Intent Detector
+ * Targeted Chunking by Section/Topic
  */
-export function detectDatasetIntent(userQuery, availableDatasets, selectedDatasetId = null) {
+export function chunkDatasetByTopic(dsContent, queryLower) {
+  if (!dsContent) return '';
+
+  const sections = dsContent.split(/(?=\n##\s+)/g);
+  if (sections.length <= 1) return dsContent;
+
+  const metadataChunk = sections[0];
+  const matchedChunks = [metadataChunk];
+
+  const wantsNdvi = queryLower.includes('ndvi') || queryLower.includes('remote sensing') || queryLower.includes('vegetation') || queryLower.includes('ndre') || queryLower.includes('ndwi');
+  const wantsSoil = queryLower.includes('soil') || queryLower.includes('moisture') || queryLower.includes('ph') || queryLower.includes('ec');
+  const wantsAlerts = queryLower.includes('alert') || queryLower.includes('risk') || queryLower.includes('critical');
+  const wantsIrrigation = queryLower.includes('water') || queryLower.includes('irrigation') || queryLower.includes('fertigation');
+  const wantsFieldNotes = queryLower.includes('field') || queryLower.includes('observation') || queryLower.includes('note') || queryLower.includes('scorching');
+
+  const isSpecificQuestion = wantsNdvi || wantsSoil || wantsAlerts || wantsIrrigation || wantsFieldNotes;
+
+  sections.forEach((sec, idx) => {
+    if (idx === 0) return;
+    const secLower = sec.toLowerCase();
+
+    if (!isSpecificQuestion) {
+      // General status question -> include all sections
+      matchedChunks.push(sec);
+      return;
+    }
+
+    if (wantsNdvi && (secLower.includes('remote sensing') || secLower.includes('ndvi') || secLower.includes('vegetation'))) {
+      matchedChunks.push(sec);
+    }
+    if (wantsSoil && (secLower.includes('soil') || secLower.includes('moisture') || secLower.includes('telemetry'))) {
+      matchedChunks.push(sec);
+    }
+    if (wantsAlerts && (secLower.includes('alert') || secLower.includes('risk'))) {
+      matchedChunks.push(sec);
+    }
+    if (wantsIrrigation && (secLower.includes('water') || secLower.includes('irrigation') || secLower.includes('nutrient'))) {
+      matchedChunks.push(sec);
+    }
+    if (wantsFieldNotes && (secLower.includes('field') || secLower.includes('observation'))) {
+      matchedChunks.push(sec);
+    }
+  });
+
+  return matchedChunks.join('\n\n');
+}
+
+/**
+ * Intelligent Dataset Intent Detector & Chunking RAG
+ */
+export function detectDatasetIntent(userQuery, availableDatasets, selectedDatasetId = null, conversationHistory = []) {
   if (!userQuery) return { targetDatasets: [], isStrict: false, datasetNames: [] };
 
   const queryLower = userQuery.toLowerCase();
-  const { isStrict } = classifyUserIntent(userQuery, selectedDatasetId);
+  const activeFarmId = extractActiveFarmFromHistory(conversationHistory);
 
   const matchedSet = new Set();
 
-  // 1. If explicit dataset selected in UI
+  // Selected dataset in UI
   if (selectedDatasetId && selectedDatasetId !== 'general') {
     const selDs = availableDatasets.find(d => d.id === selectedDatasetId || d.fileName === selectedDatasetId);
     if (selDs) matchedSet.add(selDs);
   }
 
-  // 2. Scan query for specific farm IDs (F001, F004, etc.)
+  // Scan for Farm IDs in query or active conversation memory
   availableDatasets.forEach(ds => {
-    if (ds.farmId && queryLower.includes(ds.farmId.toLowerCase())) {
-      matchedSet.add(ds);
+    if (ds.farmId) {
+      if (queryLower.includes(ds.farmId.toLowerCase())) {
+        matchedSet.add(ds);
+      } else if (activeFarmId && ds.farmId.toUpperCase() === activeFarmId.toUpperCase()) {
+        matchedSet.add(ds);
+      }
     }
   });
 
-  // 3. Scan query for dataset names / keywords
+  // Scan query for general knowledge datasets
   availableDatasets.forEach(ds => {
     const dsNameLower = ds.name.toLowerCase();
-    const fileNameLower = ds.fileName.toLowerCase();
-    
-    if (queryLower.includes(dsNameLower) || queryLower.includes(fileNameLower)) {
+    if (queryLower.includes(dsNameLower)) {
       matchedSet.add(ds);
     }
-
     if ((queryLower.includes('ndvi') || queryLower.includes('vegetation index')) && ds.id === 'ndvi_knowledge') {
       matchedSet.add(ds);
     }
     if ((queryLower.includes('soil') || queryLower.includes('moisture') || queryLower.includes('ph')) && ds.id === 'soil_knowledge') {
       matchedSet.add(ds);
     }
-    if ((queryLower.includes('weather') || queryLower.includes('humidity') || queryLower.includes('vpd')) && ds.id === 'weather_data') {
-      matchedSet.add(ds);
-    }
-    if ((queryLower.includes('alert') || queryLower.includes('critical')) && ds.id === 'alerts') {
-      matchedSet.add(ds);
-    }
-    if ((queryLower.includes('crop') || queryLower.includes('grapes') || queryLower.includes('pomegranate')) && ds.id === 'crops') {
-      matchedSet.add(ds);
-    }
-    if ((queryLower.includes('guideline') || queryLower.includes('protocol')) && ds.id === 'agricultural_guidelines') {
-      matchedSet.add(ds);
-    }
-    if ((queryLower.includes('farms') || queryLower.includes('all farm')) && ds.id === 'farms') {
-      matchedSet.add(ds);
-    }
   });
 
-  const targetDatasets = Array.from(matchedSet);
+  const targetDatasets = Array.from(matchedSet).map(ds => {
+    const chunkedContent = chunkDatasetByTopic(ds.content, queryLower);
+    return { ...ds, content: chunkedContent };
+  });
+
   const datasetNames = targetDatasets.map(d => d.name);
 
   return {
     targetDatasets,
-    isStrict,
+    isStrict: false,
     datasetNames,
   };
 }
@@ -258,43 +357,18 @@ export function detectDatasetIntent(userQuery, availableDatasets, selectedDatase
 /**
  * Build System Instructions and Grounded RAG Context for Gemini
  */
-export function buildGroundedContext(userQuery, targetDatasets, isStrict, conversationHistory = []) {
-  const { mode } = classifyUserIntent(userQuery);
+export function buildGroundedContext(userQuery, targetDatasets, isStrict = false, conversationHistory = []) {
+  const { mode } = classifyUserIntent(userQuery, 'general', conversationHistory);
 
   let contextText = '';
-  
-  if (mode === 'MODE_B_FARM_DATASET' && targetDatasets.length > 0) {
-    contextText += `=== GROUNDED FARM DATASETS IN CONTEXT (${targetDatasets.length}) ===\n\n`;
+  if (mode === 'FARM_DATA_QUESTION' && targetDatasets.length > 0) {
+    contextText += `=== TARGETED FARM DATASET CONTEXT (${targetDatasets.length}) ===\n\n`;
     targetDatasets.forEach(ds => {
-      contextText += `--- DATASET: "${ds.name}" (File: ${ds.fileName}, Category: ${ds.category}) ---\n`;
-      if (ds.farmId) contextText += `Farm ID: ${ds.farmId}\n`;
-      if (ds.description) contextText += `Description: ${ds.description}\n`;
-      contextText += `\n${ds.content}\n\n`;
+      contextText += `--- DATASET: "${ds.name}" (Farm ID: ${ds.farmId || 'N/A'}) ---\n`;
+      contextText += `${ds.content}\n\n`;
     });
     contextText += `===============================================\n\n`;
   }
 
-  const systemInstruction = `You are DigiCrop AI — an intelligent agricultural AI assistant created for the DigiCrop agricultural platform.
-
-### MANDATORY SYSTEM BEHAVIOR:
-
-MODE A — GENERAL AGRICULTURE QUESTIONS:
-- If the user asks general questions about farming, crops, irrigation, soil science, NDVI concepts, remote sensing, India agriculture, or agricultural technology, answer naturally and helpfully using your general agricultural knowledge.
-- Do NOT refuse normal general agriculture questions or claim you lack a dataset for general questions.
-
-MODE B — FARM / DATASET QUESTIONS:
-- When answering farm-specific questions (NDVI values, soil moisture, alerts, risk scores, farm status, or dataset queries):
-  1. Answer ONLY using the facts, numbers, and measurements explicitly present in the provided dataset context.
-  2. STRICT ANTI-HALLUCINATION RULE: You MUST NEVER fabricate or invent farm values, soil moisture %, soil pH, EC readings, NDVI numbers, temperatures, sensor readings, dates, or farm IDs.
-  3. MISSING DATA RULE: If a requested farm measurement or attribute (e.g. soil pH, yield) is NOT present in the provided dataset context, reply clearly:
-     "I don't have that information in the [Dataset Name] dataset."
-  4. NO ASSUMPTIONS: Never assume F001 or any farm if the user did not specify it.
-  5. DATA VS INTERPRETATION SEPARATION: Differentiate Observed Data, Calculated Results, AI Interpretation, and Action Recommendations.
-  6. PEST & DISEASE DIAGNOSIS SAFETY: Never issue 100% definitive plant disease diagnoses; use cautious hedging ("possible indication...", "requires field verification").
-
-SOURCE TRANSPARENCY:
-- For general questions, end response with: \`Source: Gemini Agricultural Knowledge\`
-- For dataset answers, end response with: \`Source: [Dataset Name]\``;
-
-  return { systemInstruction, contextText };
+  return { systemInstruction: SYSTEM_PROMPT, contextText, mode };
 }

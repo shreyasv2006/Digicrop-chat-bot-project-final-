@@ -1,10 +1,64 @@
 /**
  * Vercel Serverless Function: /api/chat
- * Handles Gemini Flash API integration with debug logging and diagnostic status
+ * Handles Gemini Flash API integration with 5-Mode Intent Classification, RAG & Anti-Hallucination
  */
 
 const fs = require('fs');
 const path = require('path');
+
+// Single System Prompt Definition
+const SYSTEM_PROMPT = `You are DigiCrop AI — a friendly, natural, expert agricultural assistant for farmers and agronomists.
+
+===============================================================================
+1. INTENT & CONVERSATIONAL BEHAVIOR RULES
+===============================================================================
+- GREETING / SMALL TALK ("hi", "hello", "hey bro", "thanks", "ok"):
+  Reply in 1-2 short, friendly sentences. Ask what they need help with today and suggest 3 short example topics (e.g. crop health advice, soil/NDVI metrics, or specific farm status). Do NOT mention any farm telemetry or dataset data.
+
+- VAGUE / UNDERSPECIFIED ("tell me about my farm", "what's the status", "help"):
+  Do NOT dump data. Ask ONE clear clarifying question (e.g., "Which farm do you mean: F001 (Nashik Vineyard) or F004 (Pune Wheat)? And do you want to inspect NDVI, soil moisture, weather, or alerts?").
+
+- FARM DATA QUESTION (Mentions a farm ID/name, NDVI, soil moisture, pH, alerts, risk, etc.):
+  Answer ONLY the specific metric or question asked using the provided dataset context.
+  - Example: "What is the NDVI of F001?" -> Answer with the exact NDVI value (**0.28 - Critical Low**) and a one-line explanation of what that number means. Do NOT list soil pH, moisture, alerts, or fertigation logs unless explicitly asked.
+  - After answering, you may offer at most ONE short optional follow-up (e.g., "Would you like me to check the soil moisture for F001 as well?").
+
+- GENERAL AGRICULTURE QUESTION (soil science, irrigation, pest management, remote sensing, crop guidelines):
+  Answer concisely using general agricultural knowledge in plain, farmer-friendly terms. Do NOT inject farm telemetry.
+
+- OFF-TOPIC QUESTION (non-agricultural topics like sports, movies, politics):
+  Politely decline in one sentence and steer the conversation back to farming and DigiCrop AI.
+
+===============================================================================
+2. ANSWER LENGTH AND TONE RULES
+===============================================================================
+- Match length to the question:
+  * Simple factual question = 1-3 sentences.
+  * "Explain" or "How does" question = 1 short paragraph or 3-5 concise bullet points.
+  * "Detailed / full report" request = Structured multi-section response.
+- Lead with the direct answer in the very first sentence. Never use filler intros ("Great question!", "Certainly!", "Sure, I can help with that") and do not repeat the user's question.
+- Never list unrequested telemetry metrics or extra sections.
+- Tone: Warm, practical, supportive, and farmer-friendly. Explain technical acronyms (NDVI, EC, NDRE) briefly when first introduced.
+
+===============================================================================
+3. FORMATTING AND STRUCTURE RULES
+===============================================================================
+- Output clean Markdown.
+- Use short paragraphs and bold text for key values and metrics (e.g., **NDVI: 0.28 (Critical Low)**).
+- ALWAYS include units for every numerical value (%, dS/m, °C, mm, pH value).
+- Use bullet points ONLY when listing 3 or more parallel items.
+- Use Markdown tables ONLY when explicitly comparing multiple farms or multiple metrics.
+- No raw JSON output and no markdown code fences around normal text.
+
+===============================================================================
+4. GROUNDING AND ANTI-HALLUCINATION RULES
+===============================================================================
+- For farm-specific telemetry, use ONLY the facts present in the provided dataset context.
+- STRICT ANTI-HALLUCINATION RULE: Never fabricate or invent farm values, soil moisture %, soil pH, EC readings, NDVI numbers, temperatures, dates, or farm IDs.
+- MISSING DATA RULE: If a requested farm measurement or attribute is missing from the dataset, state clearly in one sentence: "I don't have [metric] data for this farm."
+- UNKNOWN FARM RULE: If asked about an unindexed farm (e.g. F999), reply: "I don't have data for farm [Farm ID]. Please select or upload its dataset to inspect telemetry."
+- DATA SUPREMACY: If general agricultural knowledge and farm dataset data conflict, the dataset data wins for that specific farm.
+`;
 
 function parseFrontMatter(rawContent) {
   if (!rawContent || typeof rawContent !== 'string') {
@@ -69,38 +123,130 @@ function loadServerDatasets() {
   return datasets;
 }
 
-// Mode Classifier
-function classifyUserIntent(userQuery, selectedDatasetId = 'general') {
-  if (!userQuery) return { mode: 'MODE_A_GENERAL', isStrict: false };
-
-  const qLower = userQuery.toLowerCase().trim();
-  const strictKeywords = [
-    'only from', 'strictly from', 'only use', 'strictly use',
-    'don\'t use general', 'do not use general', 'do not invent', 'only according to'
-  ];
-  const isStrict = strictKeywords.some(kw => qLower.includes(kw));
-
-  const farmKeywords = [
-    'farm', 'farms', 'f001', 'f002', 'f003', 'f004', 'f005', 'f006', 'f007', 'f008', 'f009',
-    'this farm', 'my farm', 'the farm', 'its soil', 'its ndvi', 'its risk', 'its moisture',
-    'compare f001', 'compare f004', 'dataset', 'telemetry', 'sensor', 'alert', 'alerts'
-  ];
-
-  const hasFarmRef = farmKeywords.some(kw => qLower.includes(kw)) || /f00[0-9]/i.test(qLower);
-  const isSelected = selectedDatasetId && selectedDatasetId !== 'general';
-
-  if (hasFarmRef || isSelected || isStrict) {
-    return { mode: 'MODE_B_FARM_DATASET', isStrict };
+function extractActiveFarmFromHistory(conversationHistory = []) {
+  if (!Array.isArray(conversationHistory) || conversationHistory.length === 0) {
+    return null;
   }
-
-  return { mode: 'MODE_A_GENERAL', isStrict: false };
+  for (let i = conversationHistory.length - 1; i >= 0; i--) {
+    const msg = conversationHistory[i];
+    const text = (msg.text || msg.content || '').toUpperCase();
+    const match = text.match(/F[0-9]{3}|F00[0-9]/);
+    if (match) return match[0];
+  }
+  return null;
 }
 
-// Intent Dataset Detection
-function detectDatasetIntent(userQuery, availableDatasets, selectedDatasetId = null) {
-  if (!userQuery) return { targetDatasets: [], isStrict: false, datasetNames: [] };
+// 5-Mode Intent Classifier
+function classifyUserIntent(userQuery, selectedDatasetId = 'general', conversationHistory = []) {
+  if (!userQuery) return { mode: 'GREETING_SMALLTALK', activeFarmId: null };
+
+  const qTrim = userQuery.trim();
+  const qLower = qTrim.toLowerCase();
+  const activeFarmId = extractActiveFarmFromHistory(conversationHistory);
+
+  // 1. Greeting & Small Talk
+  const greetingPhrases = [
+    'hi', 'hello', 'hey', 'hey bro', 'hi bro', 'hello bro', 'good morning', 'good afternoon',
+    'good evening', 'thanks', 'thank you', 'ok', 'okay', 'cool', 'awesome', 'sup', 'yo'
+  ];
+  if (greetingPhrases.includes(qLower) || (/^hi\b|^hello\b|^hey\b/i.test(qLower) && qTrim.split(/\s+/).length <= 3)) {
+    if (!qLower.includes('ndvi') && !qLower.includes('soil') && !qLower.includes('farm') && !qLower.includes('f00')) {
+      return { mode: 'GREETING_SMALLTALK', activeFarmId };
+    }
+  }
+
+  // 2. Vague & Underspecified
+  const vaguePhrases = [
+    'help', 'tell me about my farm', 'what\'s the status', 'how is my farm',
+    'how are the crops doing', 'show farm status', 'farm status', 'my farm status',
+    'what is happening with my farm', 'give me details', 'status'
+  ];
+  const isSelected = selectedDatasetId && selectedDatasetId !== 'general';
+  const hasSpecificFarmId = /f[0-9]{3}|f00[0-9]/i.test(qLower);
+
+  if ((vaguePhrases.includes(qLower) || qLower === 'help') && !hasSpecificFarmId && !activeFarmId && !isSelected) {
+    return { mode: 'VAGUE_UNDERSPECIFIED', activeFarmId: null };
+  }
+
+  // 3. Off-Topic Check
+  const offTopicKeywords = [
+    'cricket', 'football', 'movie', 'actor', 'president', 'capital of france', 'joke',
+    'who won', 'bitcoin', 'crypto', 'stock market', 'iphone', 'play station', 'game'
+  ];
+  if (offTopicKeywords.some(kw => qLower.includes(kw))) {
+    return { mode: 'OFF_TOPIC', activeFarmId: null };
+  }
+
+  // 4. Farm Data Question
+  const farmTelemetryKeywords = [
+    'f001', 'f002', 'f003', 'f004', 'f005', 'f006', 'f007', 'f008', 'f009', 'f999',
+    'ndvi', 'soil moisture', 'soil ph', 'ec', 'electrical conductivity', 'ndre', 'ndwi',
+    'evi', 'telemetry', 'sensor', 'alert', 'alerts', 'root-zone', 'drip', 'fertigation',
+    'risk', 'curling', 'scorching', 'vineyard', 'temperature', 'humidity', 'rainfall',
+    'its moisture', 'its ndvi', 'its soil', 'its status', 'and f004', 'and f001'
+  ];
+
+  const mentionsFarm = farmTelemetryKeywords.some(kw => qLower.includes(kw)) || hasSpecificFarmId;
+  const isFollowUpWithContext = (qLower.includes('its') || qLower.includes('and')) && activeFarmId !== null;
+
+  if (mentionsFarm || isSelected || isFollowUpWithContext) {
+    return { mode: 'FARM_DATA_QUESTION', activeFarmId };
+  }
+
+  // 5. General Agriculture Question
+  return { mode: 'GENERAL_AGRICULTURE', activeFarmId: null };
+}
+
+// Targeted Section Chunking
+function chunkDatasetByTopic(dsContent, queryLower) {
+  if (!dsContent) return '';
+  const sections = dsContent.split(/(?=\n##\s+)/g);
+  if (sections.length <= 1) return dsContent;
+
+  const metadataChunk = sections[0];
+  const matchedChunks = [metadataChunk];
+
+  const wantsNdvi = queryLower.includes('ndvi') || queryLower.includes('remote sensing') || queryLower.includes('vegetation') || queryLower.includes('ndre') || queryLower.includes('ndwi');
+  const wantsSoil = queryLower.includes('soil') || queryLower.includes('moisture') || queryLower.includes('ph') || queryLower.includes('ec');
+  const wantsAlerts = queryLower.includes('alert') || queryLower.includes('risk') || queryLower.includes('critical');
+  const wantsIrrigation = queryLower.includes('water') || queryLower.includes('irrigation') || queryLower.includes('fertigation');
+  const wantsFieldNotes = queryLower.includes('field') || queryLower.includes('observation') || queryLower.includes('note') || queryLower.includes('scorching');
+
+  const isSpecificQuestion = wantsNdvi || wantsSoil || wantsAlerts || wantsIrrigation || wantsFieldNotes;
+
+  sections.forEach((sec, idx) => {
+    if (idx === 0) return;
+    const secLower = sec.toLowerCase();
+
+    if (!isSpecificQuestion) {
+      matchedChunks.push(sec);
+      return;
+    }
+
+    if (wantsNdvi && (secLower.includes('remote sensing') || secLower.includes('ndvi') || secLower.includes('vegetation'))) {
+      matchedChunks.push(sec);
+    }
+    if (wantsSoil && (secLower.includes('soil') || secLower.includes('moisture') || secLower.includes('telemetry'))) {
+      matchedChunks.push(sec);
+    }
+    if (wantsAlerts && (secLower.includes('alert') || secLower.includes('risk'))) {
+      matchedChunks.push(sec);
+    }
+    if (wantsIrrigation && (secLower.includes('water') || secLower.includes('irrigation') || secLower.includes('nutrient'))) {
+      matchedChunks.push(sec);
+    }
+    if (wantsFieldNotes && (secLower.includes('field') || secLower.includes('observation'))) {
+      matchedChunks.push(sec);
+    }
+  });
+
+  return matchedChunks.join('\n\n');
+}
+
+function detectDatasetIntent(userQuery, availableDatasets, selectedDatasetId = null, conversationHistory = []) {
+  if (!userQuery) return { targetDatasets: [], datasetNames: [] };
   const queryLower = userQuery.toLowerCase();
-  const { isStrict } = classifyUserIntent(userQuery, selectedDatasetId);
+  const activeFarmId = extractActiveFarmFromHistory(conversationHistory);
 
   const matchedSet = new Set();
 
@@ -110,20 +256,35 @@ function detectDatasetIntent(userQuery, availableDatasets, selectedDatasetId = n
   }
 
   availableDatasets.forEach(ds => {
-    if (ds.farmId && queryLower.includes(ds.farmId.toLowerCase())) {
+    if (ds.farmId) {
+      if (queryLower.includes(ds.farmId.toLowerCase())) {
+        matchedSet.add(ds);
+      } else if (activeFarmId && ds.farmId.toUpperCase() === activeFarmId.toUpperCase()) {
+        matchedSet.add(ds);
+      }
+    }
+  });
+
+  availableDatasets.forEach(ds => {
+    const dsNameLower = ds.name.toLowerCase();
+    if (queryLower.includes(dsNameLower)) {
       matchedSet.add(ds);
     }
-    const dsNameLower = ds.name.toLowerCase();
-    const fileNameLower = ds.fileName.toLowerCase();
-    if (queryLower.includes(dsNameLower) || queryLower.includes(fileNameLower)) {
+    if ((queryLower.includes('ndvi') || queryLower.includes('vegetation index')) && ds.id === 'ndvi_knowledge') {
+      matchedSet.add(ds);
+    }
+    if ((queryLower.includes('soil') || queryLower.includes('moisture') || queryLower.includes('ph')) && ds.id === 'soil_knowledge') {
       matchedSet.add(ds);
     }
   });
 
-  const targetDatasets = Array.from(matchedSet);
+  const targetDatasets = Array.from(matchedSet).map(ds => {
+    const chunkedContent = chunkDatasetByTopic(ds.content, queryLower);
+    return { ...ds, content: chunkedContent };
+  });
+
   return {
     targetDatasets,
-    isStrict,
     datasetNames: targetDatasets.map(d => d.name),
   };
 }
@@ -153,26 +314,42 @@ module.exports = async function handler(req, res) {
     const apiKey = process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.trim() : null;
     const requestedModel = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 
-    // SERVER-SIDE DEBUG LOGGING
-    console.log('\n[Gemini Debug]');
-    console.log(`received user prompt: "${message}"`);
-    console.log(`model: ${requestedModel}`);
+    const { mode, activeFarmId } = classifyUserIntent(message, selectedDatasetId, conversationHistory);
 
-    if (!apiKey) {
-      console.log('request sent: false');
-      console.log('response received: false');
-      console.log('[Gemini Debug Error] GEMINI_API_KEY is not configured or empty in .env');
-
+    // MODE 1: GREETING & SMALL TALK (Fast short-circuit)
+    if (mode === 'GREETING_SMALLTALK') {
       return res.status(200).json({
-        geminiConnected: false,
-        answer: '⚠️ **Gemini API Key Missing**: Please set `GEMINI_API_KEY=your_key` inside your `.env` file to connect to real Gemini Flash AI.',
-        sources: ['Gemini API Diagnostic'],
+        geminiConnected: true,
+        answer: "Hello! 👋 I'm DigiCrop AI, your agricultural assistant.\n\nHow can I help you today? Here are a few things you can ask me:\n- **Crop Advice**: Best practices for grapes or wheat\n- **Telemetry Metrics**: Ask about NDVI or soil moisture\n- **Farm Analysis**: Check status for **F001** (Nashik Vineyard) or **F004** (Pune Wheat)",
+        sources: ['DigiCrop Guidance'],
         modelUsed: requestedModel,
-        errorDetails: 'GEMINI_API_KEY environment variable is empty or missing on the server.',
+        mode,
       });
     }
 
-    // Load server datasets & merge with custom user datasets
+    // MODE 2: VAGUE & UNDERSPECIFIED (Clarification short-circuit)
+    if (mode === 'VAGUE_UNDERSPECIFIED') {
+      return res.status(200).json({
+        geminiConnected: true,
+        answer: "Which farm would you like to inspect: **F001** (Nashik Vineyard) or **F004** (Pune Wheat)? And do you want to check NDVI, soil moisture, weather, or active alerts?",
+        sources: ['DigiCrop Guidance'],
+        modelUsed: requestedModel,
+        mode,
+      });
+    }
+
+    // MODE 3: OFF-TOPIC (Short decline)
+    if (mode === 'OFF_TOPIC') {
+      return res.status(200).json({
+        geminiConnected: true,
+        answer: "I specialize in farming, crops, and agricultural telemetry. How can I help with your crops or farm datasets today?",
+        sources: ['DigiCrop Guidance'],
+        modelUsed: requestedModel,
+        mode,
+      });
+    }
+
+    // Load server datasets & merge custom datasets
     const serverDatasets = loadServerDatasets();
     const allDatasets = [...serverDatasets];
     if (Array.isArray(customDatasets)) {
@@ -193,10 +370,11 @@ module.exports = async function handler(req, res) {
       });
     }
 
-    // Check if query is about a Farm ID (e.g. F999) that does NOT exist in data
-    const farmIdMatch = message.toLowerCase().match(/f00[0-9]|f[0-9]{3}/i);
-    if (farmIdMatch) {
-      const targetFarmId = farmIdMatch[0].toUpperCase();
+    // Unknown Farm Check (e.g., F999)
+    const farmIdMatch = message.toLowerCase().match(/f[0-9]{3}|f00[0-9]/i);
+    const targetFarmId = (farmIdMatch ? farmIdMatch[0] : activeFarmId)?.toUpperCase();
+
+    if (targetFarmId) {
       const farmDs = allDatasets.find(d => 
         (d.farmId && d.farmId.toUpperCase() === targetFarmId) ||
         d.name.toUpperCase().includes(targetFarmId) ||
@@ -205,199 +383,127 @@ module.exports = async function handler(req, res) {
       );
 
       if (!farmDs) {
-        console.log('request sent: false (short-circuited by anti-hallucination check)');
-        console.log('response received: true (grounded negative response)');
-
-        const unkAnswer = message.toLowerCase().includes('risk')
-          ? `I can't determine ${targetFarmId}'s risk without its farm data.`
-          : `I don't have the current data for farm ${targetFarmId}. Please select or provide the ${targetFarmId} dataset.`;
-
         return res.status(200).json({
           geminiConnected: true,
-          answer: unkAnswer,
+          answer: `I don't have dataset or telemetry information for farm **${targetFarmId}**. Please select or upload the ${targetFarmId} dataset to inspect telemetry.`,
           sources: ['System Guardrail'],
           modelUsed: requestedModel,
-          mode: 'MODE_B_FARM_DATASET',
+          mode: 'FARM_DATA_QUESTION',
         });
       }
     }
 
-    // Classify Mode (MODE A: General Agriculture vs MODE B: Farm Dataset Analysis)
-    const { mode, isStrict } = classifyUserIntent(message, selectedDatasetId);
-    const { targetDatasets, datasetNames } = detectDatasetIntent(message, allDatasets, selectedDatasetId);
+    // Detect target datasets & chunk content
+    const { targetDatasets, datasetNames } = detectDatasetIntent(message, allDatasets, selectedDatasetId, conversationHistory);
 
-    // Build Context Text
     let contextText = '';
-    if (mode === 'MODE_B_FARM_DATASET' && targetDatasets.length > 0) {
-      contextText += `=== GROUNDED FARM DATASETS IN CONTEXT (${targetDatasets.length}) ===\n\n`;
+    if (mode === 'FARM_DATA_QUESTION' && targetDatasets.length > 0) {
+      contextText += `=== TARGETED FARM DATASET CONTEXT (${targetDatasets.length}) ===\n\n`;
       targetDatasets.forEach(ds => {
-        contextText += `--- DATASET: "${ds.name}" (File: ${ds.fileName}, Category: ${ds.category}) ---\n`;
-        if (ds.farmId) contextText += `Farm ID: ${ds.farmId}\n`;
-        if (ds.description) contextText += `Description: ${ds.description}\n`;
-        contextText += `\n${ds.content}\n\n`;
+        contextText += `--- DATASET: "${ds.name}" (Farm ID: ${ds.farmId || 'N/A'}) ---\n`;
+        contextText += `${ds.content}\n\n`;
       });
       contextText += `===============================================\n\n`;
     }
 
-    const systemInstructionText = `You are DigiCrop AI — an intelligent agricultural AI assistant created for the DigiCrop agricultural platform.
+    if (!apiKey) {
+      return res.status(200).json({
+        geminiConnected: false,
+        answer: '⚠️ **Gemini API Key Missing**: Please set `GEMINI_API_KEY` in environment configuration.',
+        sources: ['Gemini API Diagnostic'],
+        modelUsed: requestedModel,
+      });
+    }
 
-### MANDATORY SYSTEM BEHAVIOR:
-
-MODE A — GENERAL QUESTIONS (General agriculture, science, or general questions like "tell me a joke", "capital of France", "what is photosynthesis"):
-- Answer naturally, helpfully, and uniquely based on the user's specific prompt.
-- Do NOT refuse general questions or claim you lack a dataset for general questions.
-
-MODE B — FARM / DATASET QUESTIONS:
-- When answering farm-specific questions (NDVI values, soil moisture, alerts, risk scores, farm status, or dataset queries):
-  1. Answer ONLY using the facts, numbers, and measurements explicitly present in the provided dataset context.
-  2. STRICT ANTI-HALLUCINATION RULE: You MUST NEVER fabricate or invent farm values, soil moisture %, soil pH, EC readings, NDVI numbers, temperatures, sensor readings, dates, or farm IDs.
-  3. MISSING DATA RULE: If a requested farm measurement or attribute (e.g. soil pH, yield) is NOT present in the provided dataset context, reply clearly:
-     "I don't have that information in the [Dataset Name] dataset."
-  4. NO ASSUMPTIONS: Never assume F001 or any farm if the user did not specify it.
-  5. DATA VS INTERPRETATION SEPARATION: Differentiate Observed Data, Calculated Results, AI Interpretation, and Action Recommendations.
-
-SOURCE TRANSPARENCY:
-- For general questions, end response with: \`Source: Gemini Agricultural Knowledge\`
-- For dataset answers, end response with: \`Source: [Dataset Name]\``;
-
+    // Format Multi-Turn Conversation History for Gemini (last 8 messages)
     const contents = [];
     if (Array.isArray(conversationHistory)) {
-      conversationHistory.slice(-6).forEach(msg => {
+      conversationHistory.slice(-8).forEach(msg => {
         contents.push({
-          role: msg.sender === 'user' ? 'user' : 'model',
-          parts: [{ text: msg.text }]
+          role: (msg.sender === 'user' || msg.role === 'user') ? 'user' : 'model',
+          parts: [{ text: msg.text || msg.content || '' }]
         });
       });
     }
 
-    const currentPromptText = mode === 'MODE_B_FARM_DATASET' && contextText
-      ? `${contextText}USER QUESTION: ${message}`
-      : message;
-
+    const currentPromptText = contextText ? `${contextText}USER QUESTION: ${message}` : message;
     contents.push({
       role: 'user',
       parts: [{ text: currentPromptText }]
     });
 
-    // Deduplicated fallback model list
-    const candidateModels = [...new Set([
-      requestedModel,
-      'gemini-2.5-flash',
-      'gemini-1.5-flash',
-      'gemini-2.0-flash',
-    ])];
+    // Dynamic maxOutputTokens based on mode & prompt intent
+    const isDetailedRequest = message.toLowerCase().includes('explain in detail') || message.toLowerCase().includes('full report') || message.toLowerCase().includes('detailed');
+    let maxOutputTokens = 350;
+    if (mode === 'GENERAL_AGRICULTURE') maxOutputTokens = 600;
+    if (isDetailedRequest) maxOutputTokens = 1200;
 
-    const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${requestedModel}:generateContent?key=${apiKey}`;
 
-    // Retry with exponential backoff for rate limit (429) errors
-    async function callGeminiWithRetry(modelCandidate, maxRetries = 3) {
-      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelCandidate}:generateContent?key=${apiKey}`;
-      const body = JSON.stringify({
-        contents,
-        systemInstruction: { parts: [{ text: systemInstructionText }] },
-        generationConfig: {
-          temperature: mode === 'MODE_A_GENERAL' ? 0.7 : 0.1,
-          topP: 0.95,
-          maxOutputTokens: 2048,
-        }
+    let responseData = null;
+    try {
+      const response = await fetch(geminiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents,
+          systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+          generationConfig: {
+            temperature: 0.3,
+            topP: 0.9,
+            maxOutputTokens,
+          }
+        })
       });
 
-      for (let attempt = 1; attempt <= maxRetries; attempt++) {
-        try {
-          const response = await fetch(geminiUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body,
-          });
-
-          if (response.ok) {
-            return await response.json();
-          }
-
-          const errText = await response.text();
-          const isRateLimit = response.status === 429;
-          const isServerError = response.status >= 500;
-
-          if ((isRateLimit || isServerError) && attempt < maxRetries) {
-            const delay = Math.pow(2, attempt) * 1000; // 2s, 4s, 8s
-            console.warn(`[Gemini Debug] ${response.status} on model ${modelCandidate}, attempt ${attempt}/${maxRetries}. Retrying in ${delay}ms...`);
-            await sleep(delay);
-            continue;
-          }
-
-          console.warn(`[Gemini Debug] API call failed for model ${modelCandidate} (status ${response.status}):`, errText.substring(0, 200));
-          return null;
-        } catch (err) {
-          if (attempt < maxRetries) {
-            const delay = Math.pow(2, attempt) * 1000;
-            console.warn(`[Gemini Debug] Fetch error on attempt ${attempt}, retrying in ${delay}ms:`, err.message);
-            await sleep(delay);
-            continue;
-          }
-          console.warn(`[Gemini Debug] Fetch error for model ${modelCandidate} (final):`, err.message);
-          return null;
-        }
+      if (response.ok) {
+        responseData = await response.json();
+      } else {
+        const errText = await response.text();
+        console.warn(`[Gemini API Warning] ${response.status}:`, errText.substring(0, 150));
       }
-      return null;
+    } catch (err) {
+      console.warn('[Gemini API Fetch Error]:', err.message);
     }
 
-    let geminiResponseData = null;
-    let successfulModel = null;
+    const rawAnswerText = responseData?.candidates?.[0]?.content?.parts?.[0]?.text;
 
-    console.log('request sent: true');
-
-    for (const modelCandidate of candidateModels) {
-      geminiResponseData = await callGeminiWithRetry(modelCandidate);
-      if (geminiResponseData && geminiResponseData.candidates && geminiResponseData.candidates.length > 0) {
-        successfulModel = modelCandidate;
-        console.log('response received: true (model:', modelCandidate + ')');
-        break;
-      }
-    }
-
-    if (!geminiResponseData || !geminiResponseData.candidates || geminiResponseData.candidates.length === 0) {
-      console.log('response received: false (all models exhausted or rate limited)');
-
-      if (mode === 'MODE_B_FARM_DATASET' && targetDatasets.length > 0) {
-        const dsNames = targetDatasets.map(d => d.name).join(', ');
-        const dsContent = targetDatasets.map(d => `### ${d.name}\n${d.content}`).join('\n\n');
-        return res.status(200).json({
-          geminiConnected: true,
-          answer: `**Observed Farm Telemetry (${dsNames}):**\n\n${dsContent}\n\n*Source: ${dsNames}*`,
-          sources: datasetNames,
-          modelUsed: requestedModel,
-          mode,
-          isStrict,
-        });
-      }
+    if (rawAnswerText) {
+      const sourcesUsed = mode === 'FARM_DATA_QUESTION' && datasetNames.length > 0
+        ? datasetNames
+        : ['Gemini Agricultural Knowledge'];
 
       return res.status(200).json({
-        geminiConnected: false,
-        answer: '⚠️ **Gemini is temporarily busy** (rate limit reached). Please wait a moment and try again.',
-        sources: ['Gemini API Diagnostic'],
+        geminiConnected: true,
+        answer: rawAnswerText,
+        sources: sourcesUsed,
         modelUsed: requestedModel,
-        errorDetails: 'All Gemini model candidates exhausted after retries.',
+        mode,
+        targetDatasets: targetDatasets.map(d => ({ name: d.name, fileName: d.fileName })),
       });
     }
 
-    const rawAnswerText = geminiResponseData.candidates[0]?.content?.parts?.[0]?.text || 'No response generated.';
-
-    const sourcesUsed = mode === 'MODE_B_FARM_DATASET' && datasetNames.length > 0
-      ? datasetNames
-      : ['Gemini Agricultural Knowledge'];
+    // Fallback Tier 2 (Intent-Aware Dataset RAG Response when API is unavailable)
+    if (mode === 'FARM_DATA_QUESTION' && targetDatasets.length > 0) {
+      const mainDs = targetDatasets[0];
+      return res.status(200).json({
+        geminiConnected: true,
+        answer: `*Note: I'm having trouble reaching the live AI service right now, but here is the data from your dataset:*\n\n**${mainDs.name} Telemetry:**\n\n${mainDs.content}`,
+        sources: datasetNames,
+        modelUsed: requestedModel,
+        mode,
+      });
+    }
 
     return res.status(200).json({
-      geminiConnected: true,
-      answer: rawAnswerText,
-      sources: sourcesUsed,
-      modelUsed: successfulModel,
-      mode,
-      isStrict,
-      targetDatasets: targetDatasets.map(d => ({ name: d.name, fileName: d.fileName })),
+      geminiConnected: false,
+      answer: '⚠️ **Gemini is temporarily busy** (rate limit reached). Please wait a moment and try again.',
+      sources: ['Gemini API Diagnostic'],
+      modelUsed: requestedModel,
     });
 
   } catch (error) {
-    console.error('[Gemini Debug Error] Error in /api/chat handler:', error);
+    console.error('[Gemini Debug Error]:', error);
     return res.status(500).json({
       geminiConnected: false,
       error: error.message || 'Internal Server Error',

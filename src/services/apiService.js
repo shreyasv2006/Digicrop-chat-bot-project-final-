@@ -1,10 +1,10 @@
 /**
  * DigiCrop AI - Frontend API Service
- * Communicates with backend /api/chat endpoint with client-side fallback
+ * Communicates with backend /api/chat endpoint with client-side 5-mode fallback
  */
 
 import { datasetService } from './datasetService';
-import { detectDatasetIntent, buildGroundedContext, preCheckUserQuery } from '../utils/ragEngine';
+import { classifyUserIntent, preCheckUserQuery, detectDatasetIntent, buildGroundedContext } from '../utils/ragEngine';
 
 export async function sendChatMessage({
   message,
@@ -14,23 +14,28 @@ export async function sendChatMessage({
   const allDatasets = datasetService.getAllDatasets();
   const customDatasets = datasetService.customDatasets;
 
-  // 1. Client-Side Pre-Check for instant short-circuiting (e.g., dataset commands, missing farm queries)
-  const clientPreCheck = preCheckUserQuery(message, allDatasets, selectedDatasetId);
+  // 1. Client-Side Pre-Check for instant short-circuiting (Greetings, Vague Queries, Off-Topic, F999)
+  const clientPreCheck = preCheckUserQuery(message, allDatasets, selectedDatasetId, conversationHistory);
   if (clientPreCheck.handled) {
     return {
       answer: clientPreCheck.answer,
       sources: clientPreCheck.sources || ['DigiCrop Guidance'],
       newSelectedDatasetId: clientPreCheck.newSelectedDatasetId || null,
-      modelUsed: 'DigiCrop Pre-Check Guardrail',
+      modelUsed: 'DigiCrop Guardrail',
       success: true,
     };
   }
 
-  // 2. Call backend API
+  // 2. Send multi-turn request to backend API
   const apiEndpoints = [
     '/api/chat',
     'http://localhost:3001/api/chat',
   ];
+
+  const trimmedHistory = conversationHistory.slice(-8).map(msg => ({
+    sender: msg.sender || msg.role || 'user',
+    text: msg.text || msg.content || '',
+  }));
 
   for (const endpoint of apiEndpoints) {
     try {
@@ -42,7 +47,7 @@ export async function sendChatMessage({
         body: JSON.stringify({
           message,
           selectedDatasetId,
-          conversationHistory,
+          conversationHistory: trimmedHistory,
           customDatasets,
         }),
       });
@@ -54,84 +59,31 @@ export async function sendChatMessage({
           sources: data.sources || ['Gemini Agricultural Knowledge'],
           modelUsed: data.modelUsed || 'Gemini Flash',
           newSelectedDatasetId: data.newSelectedDatasetId || null,
-          mode: data.mode || 'MODE_A_GENERAL',
-          isStrict: data.isStrict || false,
+          mode: data.mode || 'FARM_DATA_QUESTION',
           success: true,
         };
       }
     } catch (err) {
-      // Endpoint unreachable, continue to fallback
+      // API endpoint unreachable, continue to Tier 3 client fallback
     }
   }
 
-  // 3. Fallback execution if backend endpoint is unavailable
-  console.log('[DigiCrop AI] Executing client-side RAG fallback engine.');
-  const { targetDatasets, isStrict, datasetNames } = detectDatasetIntent(message, allDatasets, selectedDatasetId);
+  // 3. Tier 3 Fallback Engine
+  console.log('[DigiCrop AI] Executing Tier 3 client-side fallback engine.');
+  const { mode } = classifyUserIntent(message, selectedDatasetId, conversationHistory);
+  const { targetDatasets, datasetNames } = detectDatasetIntent(message, allDatasets, selectedDatasetId, conversationHistory);
 
-  const clientApiKey = typeof process !== 'undefined' && process.env ? (process.env.GEMINI_API_KEY || process.env.EXPO_PUBLIC_GEMINI_API_KEY) : null;
-  const clientModel = typeof process !== 'undefined' && process.env ? (process.env.GEMINI_MODEL || 'gemini-2.5-flash') : 'gemini-2.5-flash';
-
-  if (clientApiKey) {
-    try {
-      const { systemInstruction, contextText } = buildGroundedContext(message, targetDatasets, isStrict, conversationHistory);
-      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${clientModel}:generateContent?key=${clientApiKey}`;
-      
-      const contents = [];
-      conversationHistory.slice(-6).forEach(msg => {
-        contents.push({
-          role: msg.sender === 'user' ? 'user' : 'model',
-          parts: [{ text: msg.text }]
-        });
-      });
-      contents.push({
-        role: 'user',
-        parts: [{ text: `${contextText}USER QUESTION: ${message}` }]
-      });
-
-      const resp = await fetch(geminiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents,
-          systemInstruction: { parts: [{ text: systemInstruction }] },
-          generationConfig: { temperature: 0.2, topP: 0.95 }
-        })
-      });
-
-      if (resp.ok) {
-        const resData = await resp.json();
-        const ans = resData.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (ans) {
-          return {
-            answer: ans,
-            sources: datasetNames.length > 0 ? datasetNames : ['Gemini Agricultural Knowledge'],
-            modelUsed: clientModel,
-            isStrict,
-            success: true,
-          };
-        }
-      }
-    } catch (err) {
-      console.warn('Client direct Gemini call failed:', err);
-    }
-  }
-
-  // Failsafe dataset answer generator
-  return generateOfflineFailsafeResponse(message, targetDatasets, isStrict, datasetNames);
-}
-
-function generateOfflineFailsafeResponse(message, targetDatasets, isStrict, datasetNames) {
-  if (targetDatasets.length > 0) {
+  if (mode === 'FARM_DATA_QUESTION' && targetDatasets.length > 0) {
     const mainDs = targetDatasets[0];
     return {
-      answer: `### ${mainDs.name} Analysis\n\n**Observed Telemetry:**\n${mainDs.content}\n\n*Source: ${mainDs.name}*`,
-      sources: [mainDs.name],
+      answer: `*Note: Unable to reach live AI service. Here is the dataset info:*\n\n**${mainDs.name}:**\n${mainDs.content}`,
+      sources: datasetNames,
       success: true,
     };
   }
 
   return {
-    answer: `I can assist with general agriculture concepts, or analyze specific farm datasets. Please select or provide a farm dataset such as **F001 Farm Dataset** to inspect telemetry metrics.`,
+    answer: "I specialize in farming, crops, and agricultural telemetry. How can I help with your crops or farm datasets today?",
     sources: ['DigiCrop Guidance'],
     success: true,
   };
