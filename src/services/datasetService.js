@@ -53,9 +53,22 @@ export function convertCSVToMarkdown(csvText, fileName = 'dataset.csv') {
 }
 
 export function countDatasetChunks(content) {
-  if (!content) return 0;
+  if (!content || typeof content !== 'string') return 0;
   const sections = content.split(/(?=\n##\s+)/g).filter(s => s.trim().length > 0);
-  return Math.max(1, sections.length);
+  if (sections.length > 1) return sections.length;
+  
+  // Try splitting by paragraph or section breaks
+  const paragraphs = content.split(/\n\s*\n/).filter(p => p.trim().length > 0);
+  if (paragraphs.length > 1) return Math.min(paragraphs.length, 50);
+
+  // If table/CSV lines
+  const lines = content.split(/\r?\n/).filter(l => l.trim().length > 0);
+  if (lines.length > 2) {
+    // Chunk row groups of 3-5 rows
+    return Math.min(Math.ceil((lines.length - 1) / 3), 50);
+  }
+
+  return 1;
 }
 
 export function extractFarmIdsFromContent(text) {

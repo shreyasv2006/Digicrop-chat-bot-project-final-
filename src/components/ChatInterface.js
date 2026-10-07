@@ -136,7 +136,7 @@ export default function ChatInterface({
         style={styles.messageList}
         contentContainerStyle={[
           styles.messageListContent,
-          messages.length === 0 && { flexGrow: 1, justifyContent: 'flex-end' }
+          messages.length === 0 && { flexGrow: 1, justifyContent: 'flex-start', paddingBottom: 60 }
         ]}
         showsVerticalScrollIndicator={false}
       >
@@ -205,9 +205,18 @@ export default function ChatInterface({
                     {/* Token Usage Muted Line */}
                     <View style={styles.tokenLineContainer}>
                       <Text style={[styles.tokenLineText, { color: theme.textSecondary }]}>
-                        {msg.usage && msg.usage.calledModel && msg.usage.totalTokens > 0
-                          ? `In ${msg.usage.inputTokens} · Out ${msg.usage.outputTokens}${msg.usage.thinkingTokens ? ` · Think ${msg.usage.thinkingTokens}` : ''} · Total ${msg.usage.totalTokens} tokens · ${((msg.usage.latencyMs || 300) / 1000).toFixed(1)}s`
-                          : 'No model call · 0 tokens'}
+                        {(() => {
+                          const u = msg.usage;
+                          if (!u || u.calledModel === false) {
+                            return 'No model call · 0 tokens';
+                          }
+                          const q = u.questionTokens != null ? u.questionTokens : 'n/a';
+                          const p = u.promptTokens != null ? u.promptTokens : (u.inputTokens != null ? u.inputTokens : 'n/a');
+                          const o = (u.completionTokens != null ? u.completionTokens : (u.outputTokens != null ? u.outputTokens : 0)) + (u.thinkingTokens || 0);
+                          const tot = u.totalTokens != null ? u.totalTokens : 'n/a';
+                          const lat = u.latencyMs ? `${(u.latencyMs / 1000).toFixed(1)}s` : 'n/a';
+                          return `Question ${q} · Prompt ${p} · Output ${o} · Total ${tot} tokens · ${lat}`;
+                        })()}
                       </Text>
                     </View>
                   </View>

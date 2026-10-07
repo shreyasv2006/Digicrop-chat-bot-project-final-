@@ -151,6 +151,9 @@ export default function Settings({ theme, isDarkMode, toggleTheme, onOpenUploadM
     } catch (e) {}
   };
 
+  const safeDatasets = datasets || [];
+  const totalChunks = safeDatasets.reduce((acc, d) => acc + (d?.chunkCount || 1), 0);
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
       {/* Section 1: User Profile */}
@@ -161,7 +164,7 @@ export default function Settings({ theme, isDarkMode, toggleTheme, onOpenUploadM
           style={[styles.input, { color: theme.text, backgroundColor: theme.background, borderColor: theme.border }]}
           placeholder="e.g. Ramesh Patil or Agronomist"
           placeholderTextColor={theme.textSecondary}
-          value={profile.displayName}
+          value={profile?.displayName || ''}
           onChangeText={handleNameChange}
         />
       </View>

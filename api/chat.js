@@ -255,6 +255,25 @@ function detectDatasetIntent(userQuery, availableDatasets, selectedDatasetId = n
   };
 }
 
+async function countGeminiTokens(text, apiKey, modelName) {
+  if (!text || !apiKey) return null;
+  try {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:countTokens?key=${apiKey}`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text }] }]
+      })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return typeof data.totalTokens === 'number' ? data.totalTokens : null;
+    }
+  } catch (e) {}
+  return null;
+}
+
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -295,14 +314,18 @@ module.exports = async function handler(req, res) {
     });
 
     // Helper for non-model response usage
-    const makeNonModelUsage = (modelName = 'None') => ({
-      inputTokens: 0,
-      outputTokens: 0,
+    const makeNonModelUsage = (providerName = 'None', modelName = 'None') => ({
+      provider: providerName,
+      model: modelName,
+      promptTokens: 0,
+      completionTokens: 0,
       thinkingTokens: 0,
       totalTokens: 0,
-      model: modelName,
+      questionTokens: 0,
       latencyMs: Date.now() - startTime,
       calledModel: false,
+      inputTokens: 0,
+      outputTokens: 0,
     });
 
     // MODE 1: GREETING & SMALL TALK
@@ -471,14 +494,33 @@ module.exports = async function handler(req, res) {
               : ['Groq Agricultural AI'];
 
             const gUsage = groqData.usage || {};
+            const promptTokens = gUsage.prompt_tokens || 0;
+            const completionTokens = gUsage.completion_tokens || 0;
+            const totalTokens = gUsage.total_tokens || (promptTokens + completionTokens);
+
+            // Parallel non-blocking countTokens if Gemini key exists, else null
+            let questionTokens = null;
+            if (geminiKey) {
+              try {
+                questionTokens = await Promise.race([
+                  countGeminiTokens(message, geminiKey, process.env.GEMINI_MODEL || 'gemini-2.5-flash'),
+                  new Promise(r => setTimeout(() => r(null), 1000))
+                ]);
+              } catch (e) {}
+            }
+
             const usage = {
-              inputTokens: gUsage.prompt_tokens || 0,
-              outputTokens: gUsage.completion_tokens || 0,
-              thinkingTokens: 0,
-              totalTokens: gUsage.total_tokens || ((gUsage.prompt_tokens || 0) + (gUsage.completion_tokens || 0)),
+              provider: 'Groq',
               model: groqModel,
+              promptTokens,
+              completionTokens,
+              thinkingTokens: 0,
+              totalTokens,
+              questionTokens,
               latencyMs: Date.now() - startTime,
               calledModel: true,
+              inputTokens: promptTokens,
+              outputTokens: completionTokens,
             };
 
             trace.push({
@@ -527,6 +569,9 @@ module.exports = async function handler(req, res) {
         parts: [{ text: currentPromptText }]
       });
 
+      // Start question token counting in parallel with inference
+      const questionTokenPromise = countGeminiTokens(message, geminiKey, geminiModel);
+
       try {
         const geminiResponse = await fetch(geminiUrl, {
           method: 'POST',
@@ -550,15 +595,32 @@ module.exports = async function handler(req, res) {
               ? datasetNames
               : ['Gemini Agricultural Knowledge'];
 
+            let questionTokens = null;
+            try {
+              questionTokens = await Promise.race([
+                questionTokenPromise,
+                new Promise(r => setTimeout(() => r(null), 800))
+              ]);
+            } catch (e) {}
+
             const meta = geminiData.usageMetadata || {};
+            const promptTokens = meta.promptTokenCount || 0;
+            const completionTokens = meta.candidatesTokenCount || 0;
+            const thinkingTokens = meta.thoughtsTokenCount || 0;
+            const totalTokens = meta.totalTokenCount || (promptTokens + completionTokens + thinkingTokens);
+
             const usage = {
-              inputTokens: meta.promptTokenCount || 0,
-              outputTokens: meta.candidatesTokenCount || 0,
-              thinkingTokens: meta.thoughtsTokenCount || 0,
-              totalTokens: meta.totalTokenCount || ((meta.promptTokenCount || 0) + (meta.candidatesTokenCount || 0)),
+              provider: 'Gemini',
               model: geminiModel,
+              promptTokens,
+              completionTokens,
+              thinkingTokens,
+              totalTokens,
+              questionTokens,
               latencyMs: Date.now() - startTime,
               calledModel: true,
+              inputTokens: promptTokens,
+              outputTokens: completionTokens,
             };
 
             trace.push({

@@ -24,13 +24,17 @@ export async function sendChatMessage({
   const clientPreCheck = preCheckUserQuery(message, allDatasets, selectedDatasetId, conversationHistory);
   if (clientPreCheck.handled) {
     const nonModelUsage = {
-      inputTokens: 0,
-      outputTokens: 0,
+      provider: 'None',
+      model: 'DigiCrop Guardrail',
+      promptTokens: 0,
+      completionTokens: 0,
       thinkingTokens: 0,
       totalTokens: 0,
-      model: 'DigiCrop Guardrail',
+      questionTokens: 0,
       latencyMs: 15,
       calledModel: false,
+      inputTokens: 0,
+      outputTokens: 0,
     };
     const clientTrace = [
       { agent: 'Intent Classifier', action: 'Classify User Intent', status: 'Success', durationMs: 5, detail: 'Handled by pre-check' },
@@ -39,7 +43,7 @@ export async function sendChatMessage({
 
     saveMonitorLogToStorage({
       id: 'req_' + Date.now(),
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      timestamp: Date.now(),
       question: message.substring(0, 80),
       mode: 'GREETING_SMALLTALK',
       usage: nonModelUsage,
@@ -87,19 +91,23 @@ export async function sendChatMessage({
       if (response.ok) {
         const data = await response.json();
         const usage = data.usage || {
-          inputTokens: 0,
-          outputTokens: 0,
+          provider: 'None',
+          model: data.modelUsed || 'AI Engine',
+          promptTokens: 0,
+          completionTokens: 0,
           thinkingTokens: 0,
           totalTokens: 0,
-          model: data.modelUsed || 'Gemini Flash',
+          questionTokens: 0,
           latencyMs: 250,
           calledModel: false,
+          inputTokens: 0,
+          outputTokens: 0,
         };
         const trace = data.trace || [];
 
         saveMonitorLogToStorage({
           id: 'req_' + Date.now(),
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+          timestamp: Date.now(),
           question: message.substring(0, 80),
           mode: data.mode || 'FARM_DATA_QUESTION',
           usage,
@@ -128,13 +136,17 @@ export async function sendChatMessage({
   const { targetDatasets, datasetNames } = detectDatasetIntent(message, allDatasets, selectedDatasetId, conversationHistory);
 
   const fallbackUsage = {
-    inputTokens: 0,
-    outputTokens: 0,
+    provider: 'None',
+    model: 'Local Fallback',
+    promptTokens: 0,
+    completionTokens: 0,
     thinkingTokens: 0,
     totalTokens: 0,
-    model: 'Local Fallback',
+    questionTokens: 0,
     latencyMs: 50,
     calledModel: false,
+    inputTokens: 0,
+    outputTokens: 0,
   };
   const fallbackTrace = [
     { agent: 'Intent Classifier', action: 'Classify User Intent', status: 'Success', durationMs: 10, detail: `mode: ${mode}` },
@@ -152,7 +164,7 @@ export async function sendChatMessage({
 
   saveMonitorLogToStorage({
     id: 'req_' + Date.now(),
-    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+    timestamp: Date.now(),
     question: message.substring(0, 80),
     mode: mode || 'FARM_DATA_QUESTION',
     usage: fallbackUsage,

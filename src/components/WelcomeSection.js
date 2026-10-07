@@ -2,8 +2,12 @@ import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { SIZES } from '../constants/theme';
 import DCLogo from './DCLogo';
+import { datasetService } from '../services/datasetService';
 
 export default function WelcomeSection({ theme }) {
+  const loaded = datasetService.getAllDatasets();
+  const exampleDs = loaded.length > 0 ? loaded[0].name : null;
+
   return (
     <View style={styles.container}>
       <View style={{ marginBottom: SIZES.md }}>
@@ -15,7 +19,15 @@ export default function WelcomeSection({ theme }) {
         How can I assist your farm decisions today?
       </Text>
       <Text style={[styles.description, { color: theme.textSecondary }]}>
-        Ask general agricultural questions, query farm datasets (e.g. <Text style={{ fontWeight: '600', color: theme.primary }}>"Answer from F001 Farm Dataset"</Text>), compare plots, or upload custom <Text style={{ fontWeight: '600' }}>.md</Text> knowledge files.
+        {exampleDs ? (
+          <>
+            Ask general agricultural questions, query farm datasets (e.g. <Text style={{ fontWeight: '600', color: theme.primary }}>"What is the NDVI in {exampleDs}?"</Text>), compare plots, or upload custom knowledge files.
+          </>
+        ) : (
+          <>
+            Ask general agricultural questions, query farm telemetry and metrics, compare monitored plots, or upload custom datasets.
+          </>
+        )}
       </Text>
     </View>
   );

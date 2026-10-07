@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, Feather } from '@expo/vector-icons';
 import { SIZES } from '../constants/theme';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import DCLogo from './DCLogo';
@@ -90,14 +90,20 @@ export default function Header({
         <TouchableOpacity 
           style={[styles.newSessionBtn, { backgroundColor: theme.primary }]}
           onPress={onNewSession}
+          title="Start a new chat session"
         >
           <Ionicons name="add" size={18} color="#FFF" style={{ marginRight: 4 }} />
           <Text style={styles.newSessionText}>New Session</Text>
         </TouchableOpacity>
 
-        {/* Theme Toggle */}
-        <TouchableOpacity onPress={toggleTheme} style={[styles.themeBtn, { backgroundColor: theme.cardBg, borderColor: theme.border }]}>
-          <Ionicons name={isDarkMode ? "sunny" : "moon"} size={16} color={theme.text} />
+        {/* Theme Toggle Button */}
+        <TouchableOpacity 
+          onPress={toggleTheme} 
+          style={[styles.themeBtn, { backgroundColor: theme.cardBg, borderColor: theme.border }]}
+          title={isDarkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
+          accessibilityLabel="Toggle Dark/Light Mode"
+        >
+          <Feather name={isDarkMode ? "sun" : "moon"} size={17} color={theme.text} />
         </TouchableOpacity>
 
         {/* Profile Avatar */}
@@ -170,7 +176,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 12,
-    paddingVertical: 7,
+    height: 34,
     borderRadius: 8,
     borderWidth: 1,
     marginRight: 10,
@@ -183,7 +189,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 14,
-    paddingVertical: 7,
+    height: 34,
     borderRadius: 8,
     marginRight: 10,
   },

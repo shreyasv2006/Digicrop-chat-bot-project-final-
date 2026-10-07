@@ -56,10 +56,40 @@ export function parseCSVToRows(rawText) {
   const clean = rawText.replace(/^\uFEFF/, '').trim();
   if (!clean) return [];
 
-  const lines = clean.split(/\r?\n/).filter(l => l.trim().length > 0);
-  if (lines.length < 2) return [];
+  const allLines = clean.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+  if (allLines.length < 2) return [];
 
-  function splitCSVRow(rowStr) {
+  // Determine best delimiter (, or \t or ; or |)
+  function detectDelimiter(line) {
+    const commas = (line.match(/,/g) || []).length;
+    const tabs = (line.match(/\t/g) || []).length;
+    const semis = (line.match(/;/g) || []).length;
+    const pipes = (line.match(/\|/g) || []).length;
+    if (tabs > commas && tabs > semis && tabs > pipes) return '\t';
+    if (semis > commas && semis > tabs && semis > pipes) return ';';
+    if (pipes > commas && pipes > tabs && pipes > semis) return '|';
+    return ',';
+  }
+
+  // Find the header row (skip markdown titles like "# My Dataset" or frontmatter)
+  let headerIndex = -1;
+  let chosenDelim = ',';
+
+  for (let i = 0; i < Math.min(allLines.length, 10); i++) {
+    const line = allLines[i];
+    if (line.startsWith('#') || line.startsWith('---') || line.startsWith('//')) continue;
+    const delim = detectDelimiter(line);
+    const count = line.split(delim).length;
+    if (count >= 2) {
+      headerIndex = i;
+      chosenDelim = delim;
+      break;
+    }
+  }
+
+  if (headerIndex === -1) return [];
+
+  function splitRow(rowStr, delim) {
     const res = [];
     let cur = '';
     let inQuotes = false;
@@ -67,26 +97,30 @@ export function parseCSVToRows(rawText) {
       const char = rowStr[i];
       if (char === '"') {
         inQuotes = !inQuotes;
-      } else if (char === ',' && !inQuotes) {
-        res.push(cur.trim().replace(/^"|"$/g, ''));
+      } else if (char === delim && !inQuotes) {
+        res.push(cur.trim().replace(/^"|"$/g, '').replace(/^\||\|$/g, '').trim());
         cur = '';
       } else {
         cur += char;
       }
     }
-    res.push(cur.trim().replace(/^"|"$/g, ''));
-    return res;
+    res.push(cur.trim().replace(/^"|"$/g, '').replace(/^\||\|$/g, '').trim());
+    return res.filter((val, idx) => !(delim === '|' && (idx === 0 || idx === res.length - 1) && val === ''));
   }
 
-  const rawHeaders = splitCSVRow(lines[0]);
-  const rows = [];
+  const rawHeaders = splitRow(allLines[headerIndex], chosenDelim).map(h => h.replace(/^#+\s*/, '').trim());
+  if (rawHeaders.length < 2) return [];
 
-  for (let i = 1; i < lines.length; i++) {
-    const values = splitCSVRow(lines[i]);
+  const rows = [];
+  for (let i = headerIndex + 1; i < allLines.length; i++) {
+    const line = allLines[i];
+    if (line.startsWith('---') || line.startsWith('#') || /^[-:| ]+$/.test(line)) continue;
+    const values = splitRow(line, chosenDelim);
+    if (values.length < 2) continue;
     const rowObj = {};
     rawHeaders.forEach((h, idx) => {
       if (h) {
-        rowObj[h.trim()] = values[idx] !== undefined ? values[idx].trim() : '';
+        rowObj[h] = values[idx] !== undefined ? values[idx] : '';
       }
     });
     rows.push(rowObj);
@@ -100,17 +134,30 @@ export function parseCSVToRows(rawText) {
  */
 export function parseMDTableToRows(rawText) {
   if (!rawText || typeof rawText !== 'string') return [];
-  const lines = rawText.split(/\r?\n/).map(l => l.trim()).filter(l => l.startsWith('|') && l.endsWith('|'));
+  const lines = rawText.split(/\r?\n/).map(l => l.trim()).filter(l => l.includes('|'));
   if (lines.length < 3) return []; // header, divider, at least 1 data row
 
-  const headers = lines[0].split('|').slice(1, -1).map(h => h.trim());
+  // Find header line
+  let hIdx = -1;
+  for (let i = 0; i < lines.length - 1; i++) {
+    if (lines[i].includes('|') && /^[| -:]+$/.test(lines[i + 1])) {
+      hIdx = i;
+      break;
+    }
+  }
+
+  if (hIdx === -1) return [];
+
+  const headers = lines[hIdx].split('|').map(h => h.trim()).filter(h => h.length > 0);
   const rows = [];
 
-  for (let i = 2; i < lines.length; i++) {
-    const cols = lines[i].split('|').slice(1, -1).map(c => c.trim());
+  for (let i = hIdx + 2; i < lines.length; i++) {
+    if (!lines[i].includes('|') || lines[i].startsWith('#')) break;
+    const cols = lines[i].split('|').map(c => c.trim()).filter((_, idx, arr) => idx > 0 && idx < arr.length - 1);
+    if (cols.length === 0) continue;
     const rowObj = {};
     headers.forEach((h, idx) => {
-      rowObj[h] = cols[idx] || '';
+      rowObj[h] = cols[idx] !== undefined ? cols[idx] : '';
     });
     rows.push(rowObj);
   }
@@ -169,6 +216,8 @@ export function extractNormalizedRows(dataset) {
       if (stdField) {
         detectedFieldSet.add(k.trim());
         norm[stdField] = val;
+      } else if (k.trim().length > 0) {
+        detectedFieldSet.add(k.trim());
       }
       norm[k.trim()] = val;
     });
@@ -187,10 +236,14 @@ export function extractNormalizedRows(dataset) {
  */
 export function getDetectedFieldsString(dataset) {
   const { detectedFields, rawRowCount } = extractNormalizedRows(dataset);
-  if (detectedFields.length === 0) {
-    return `Detected: Raw Text (${rawRowCount || 1} block)`;
+  if (rawRowCount > 0 && detectedFields.length > 0) {
+    const fieldSummary = detectedFields.slice(0, 6).join(', ') + (detectedFields.length > 6 ? '...' : '');
+    return `Detected: ${fieldSummary} (${rawRowCount} rows)`;
   }
-  return `Detected: ${detectedFields.join(', ')} (${rawRowCount} rows)`;
+  if (rawRowCount > 0) {
+    return `Detected: Telemetry Table (${rawRowCount} rows)`;
+  }
+  return `Detected: Raw Text (${dataset.chunkCount || 1} block)`;
 }
 
 /**

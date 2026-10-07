@@ -21,6 +21,8 @@ import AgentMonitor from './src/screens/AgentMonitor';
 import SavedConversations from './src/screens/SavedConversations';
 import Settings from './src/screens/Settings';
 
+import ErrorBoundary from './src/components/ErrorBoundary';
+
 import UploadDatasetModal from './src/components/UploadDatasetModal';
 
 export default function App() {
@@ -122,7 +124,9 @@ export default function App() {
               onOpenAuditLog={() => setAuditModalVisible(true)}
             />
             <View style={styles.screenWrapper}>
-              {renderScreen()}
+              <ErrorBoundary theme={theme} key={currentScreen}>
+                {renderScreen()}
+              </ErrorBoundary>
             </View>
           </View>
         </View>
