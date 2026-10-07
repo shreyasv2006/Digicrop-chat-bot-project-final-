@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, useWindowDimensions, SafeAreaView, Platform, StatusBar } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { useFonts } from 'expo-font';
+import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { COLORS } from './src/constants/theme';
 import Sidebar from './src/components/Sidebar';
 import Header from './src/components/Header';
@@ -23,6 +25,12 @@ export default function App() {
   const [auditModalVisible, setAuditModalVisible] = useState(false);
   const [sessionResetTrigger, setSessionResetTrigger] = useState(0);
 
+  const [fontsLoaded] = useFonts({
+    ...Ionicons.font,
+    ...Feather.font,
+    ...MaterialCommunityIcons.font,
+  });
+
   const { width } = useWindowDimensions();
   const isDesktop = width >= 768; // Tablet/Desktop breakpoint
   
@@ -32,6 +40,7 @@ export default function App() {
   useEffect(() => {
     injectWebFonts();
   }, []);
+
 
   const toggleTheme = () => setIsDarkMode(!isDarkMode);
   const toggleSidebar = () => setSidebarOpen(!sidebarOpen);

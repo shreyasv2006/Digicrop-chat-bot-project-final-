@@ -43,90 +43,41 @@ export default function Header({
             <Text style={[styles.brandTitle, { color: theme.text }]}>
               DigiCrop <Text style={{ color: theme.primary }}>AI</Text>
             </Text>
-            <View style={[styles.cnetBadge, { backgroundColor: theme.primary + '20', borderColor: theme.primary + '40' }]}>
-              <Text style={[styles.cnetText, { color: theme.primary }]}>CNET 2026</Text>
-            </View>
-          </View>
-          
-          <View style={styles.subtitleRow}>
-            <View style={[styles.pulseDot, { backgroundColor: theme.primary }]} />
-            <Text style={[styles.subtitleText, { color: theme.textSecondary }]}>
-              Multispectral Telemetry Core v2.6
-            </Text>
+            <View style={[styles.statusDot, { backgroundColor: theme.primary }]} />
           </View>
         </View>
       </View>
 
-      {/* Active Farm Context Selector */}
+      {/* Active Context */}
       {isDesktop && (
         <View style={[styles.contextSelector, { backgroundColor: theme.cardBg, borderColor: theme.border }]}>
-          <Text style={[styles.contextLabel, { color: theme.textSecondary }]}>ACTIVE CONTEXT:</Text>
-          <View style={styles.contextValueRow}>
-            <Ionicons name="location-outline" size={14} color={theme.primary} style={{ marginRight: 4 }} />
-            <Text style={[styles.contextValueText, { color: theme.text }]}>All Monitored Farms (F001–F006)</Text>
-            <Ionicons name="chevron-down" size={12} color={theme.textSecondary} style={{ marginLeft: 4 }} />
-          </View>
+          <Ionicons name="location-outline" size={14} color={theme.primary} style={{ marginRight: 6 }} />
+          <Text style={[styles.contextValueText, { color: theme.text }]}>Farms (F001–F006)</Text>
+          <Ionicons name="chevron-down" size={12} color={theme.textSecondary} style={{ marginLeft: 6 }} />
         </View>
       )}
 
       {/* Controls & User Profile */}
       <View style={styles.controlsRow}>
-        {/* Model Badge */}
-        {isDesktop && (
-          <View style={[styles.modelBadge, { backgroundColor: theme.primary + '15', borderColor: theme.primary + '35' }]}>
-            <Ionicons name="sparkles" size={13} color={theme.primary} style={{ marginRight: 4 }} />
-            <Text style={[styles.modelText, { color: theme.primary }]}>Groq / Gemini Flash</Text>
-            <View style={[styles.groundedChip, { backgroundColor: theme.primary }]}>
-              <Text style={styles.groundedChipText}>Grounded</Text>
-            </View>
-          </View>
-        )}
-
-        {/* Sync Button */}
-        <TouchableOpacity 
-          style={[styles.actionBtn, { backgroundColor: theme.cardBg, borderColor: theme.border }]}
-          onPress={onSyncLiveData}
-        >
-          <Ionicons name="sync-outline" size={14} color={theme.primary} style={{ marginRight: 4 }} />
-          <Text style={[styles.actionBtnText, { color: theme.text }]}>Sync Live Data</Text>
-        </TouchableOpacity>
-
-        {/* Audit Log */}
-        {isDesktop && (
-          <TouchableOpacity 
-            style={[styles.actionBtn, { backgroundColor: theme.cardBg, borderColor: theme.border }]}
-            onPress={onOpenAuditLog}
-          >
-            <Ionicons name="shield-checkmark-outline" size={14} color={theme.accent} style={{ marginRight: 4 }} />
-            <Text style={[styles.actionBtnText, { color: theme.text }]}>Audit Log</Text>
-          </TouchableOpacity>
-        )}
-
         {/* New Session Button */}
         <TouchableOpacity 
           style={[styles.newSessionBtn, { backgroundColor: theme.primary }]}
           onPress={onNewSession}
         >
-          <Ionicons name="add-circle-outline" size={15} color="#FFF" style={{ marginRight: 4 }} />
+          <Ionicons name="add" size={18} color="#FFF" style={{ marginRight: 4 }} />
           <Text style={styles.newSessionText}>New Session</Text>
         </TouchableOpacity>
 
-        {/* Dark Mode Toggle */}
+        {/* Theme Toggle */}
         <TouchableOpacity onPress={toggleTheme} style={[styles.themeBtn, { backgroundColor: theme.cardBg, borderColor: theme.border }]}>
           <Ionicons name={isDarkMode ? "sunny" : "moon"} size={16} color={theme.text} />
         </TouchableOpacity>
 
-        {/* Officer Profile Pill */}
+        {/* Profile */}
         <View style={[styles.profilePill, { borderLeftColor: theme.border }]}>
           <View style={[styles.avatarBox, { backgroundColor: theme.primary + '25', borderColor: theme.primary + '50' }]}>
             <Text style={[styles.avatarText, { color: theme.primary }]}>AO</Text>
           </View>
-          {isDesktop && (
-            <View style={styles.profileMeta}>
-              <Text style={[styles.profileName, { color: theme.text }]}>Officer S. Jadhav</Text>
-              <Text style={[styles.profileRole, { color: theme.textSecondary }]}>Sahyadri Cluster Ops</Text>
-            </View>
-          )}
         </View>
       </View>
     </View>
@@ -139,7 +90,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: SIZES.md,
-    paddingBottom: 10,
+    paddingVertical: 12,
     borderBottomWidth: 1,
   },
   brandRow: {
@@ -150,8 +101,8 @@ const styles = StyleSheet.create({
     marginRight: 10,
   },
   logoBox: {
-    width: 36,
-    height: 36,
+    width: 34,
+    height: 34,
     borderRadius: 8,
     borderWidth: 1,
     alignItems: 'center',
@@ -166,31 +117,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
   },
-  cnetBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: 4,
-    borderWidth: 1,
-    marginLeft: 6,
-  },
-  cnetText: {
-    fontSize: 9,
-    fontWeight: '700',
-  },
-  subtitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 2,
-  },
-  pulseDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    marginRight: 6,
-  },
-  subtitleText: {
-    fontSize: 10,
-    fontWeight: '500',
+  statusDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    marginLeft: 8,
   },
   contextSelector: {
     flexDirection: 'row',
@@ -200,15 +131,6 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
   },
-  contextLabel: {
-    fontSize: 10,
-    fontWeight: '700',
-    marginRight: 6,
-  },
-  contextValueRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
   contextValueText: {
     fontSize: 12,
     fontWeight: '600',
@@ -217,75 +139,38 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
-  modelBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
-    borderWidth: 1,
-    marginRight: 8,
-  },
-  modelText: {
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  groundedChip: {
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-    borderRadius: 3,
-    marginLeft: 6,
-  },
-  groundedChipText: {
-    fontSize: 9,
-    fontWeight: 'bold',
-    color: '#FFF',
-  },
-  actionBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 6,
-    borderWidth: 1,
-    marginRight: 6,
-  },
-  actionBtnText: {
-    fontSize: 11,
-    fontWeight: '600',
-  },
   newSessionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-    marginRight: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 8,
+    marginRight: 10,
   },
   newSessionText: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: 'bold',
     color: '#FFF',
   },
   themeBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 34,
+    height: 34,
+    borderRadius: 8,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 8,
+    marginRight: 10,
   },
   profilePill: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingLeft: 8,
+    paddingLeft: 10,
     borderLeftWidth: 1,
   },
   avatarBox: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
@@ -293,15 +178,6 @@ const styles = StyleSheet.create({
   avatarText: {
     fontSize: 12,
     fontWeight: 'bold',
-  },
-  profileMeta: {
-    marginLeft: 6,
-  },
-  profileName: {
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  profileRole: {
-    fontSize: 9,
   }
 });
+
