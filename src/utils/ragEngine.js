@@ -2,15 +2,6 @@
  * DigiCrop AI - Advanced RAG Engine, Intent Classifier & Targeted Chunking
  */
 
-import farmsMd from '../datasets/farms.md';
-import farmF001Md from '../datasets/farm_F001.md';
-import farmF004Md from '../datasets/farm_F004.md';
-import soilKnowledgeMd from '../datasets/soil_knowledge.md';
-import ndviKnowledgeMd from '../datasets/ndvi_knowledge.md';
-import weatherDataMd from '../datasets/weather_data.md';
-import alertsMd from '../datasets/alerts.md';
-import cropsMd from '../datasets/crops.md';
-import agriculturalGuidelinesMd from '../datasets/agricultural_guidelines.md';
 import { SYSTEM_PROMPT } from '../config/systemPrompt';
 
 /**
@@ -48,34 +39,9 @@ export function parseFrontMatter(rawContent) {
   return { metadata, content };
 }
 
-// Built-in Datasets Registry
-const BUILTIN_DATASETS_RAW = [
-  { id: 'farms', filename: 'farms.md', raw: farmsMd },
-  { id: 'farm_F001', filename: 'farm_F001.md', raw: farmF001Md },
-  { id: 'farm_F004', filename: 'farm_F004.md', raw: farmF004Md },
-  { id: 'soil_knowledge', filename: 'soil_knowledge.md', raw: soilKnowledgeMd },
-  { id: 'ndvi_knowledge', filename: 'ndvi_knowledge.md', raw: ndviKnowledgeMd },
-  { id: 'weather_data', filename: 'weather_data.md', raw: weatherDataMd },
-  { id: 'alerts', filename: 'alerts.md', raw: alertsMd },
-  { id: 'crops', filename: 'crops.md', raw: cropsMd },
-  { id: 'agricultural_guidelines', filename: 'agricultural_guidelines.md', raw: agriculturalGuidelinesMd },
-];
-
+// Built-in Datasets Registry - Starts empty as required
 export function getBuiltinDatasets() {
-  return BUILTIN_DATASETS_RAW.map(item => {
-    const parsed = parseFrontMatter(item.raw);
-    return {
-      id: item.id,
-      fileName: item.filename,
-      name: parsed.metadata.name || item.filename.replace('.md', '').toUpperCase(),
-      category: parsed.metadata.category || 'General',
-      farmId: parsed.metadata.farm_id || null,
-      crop: parsed.metadata.crop || null,
-      description: parsed.metadata.description || 'DigiCrop knowledge dataset.',
-      content: parsed.content,
-      raw: item.raw,
-    };
-  });
+  return [];
 }
 
 /**
@@ -89,7 +55,7 @@ export function extractActiveFarmFromHistory(conversationHistory = []) {
   for (let i = conversationHistory.length - 1; i >= 0; i--) {
     const msg = conversationHistory[i];
     const text = (msg.text || msg.content || '').toUpperCase();
-    const match = text.match(/F[0-9]{3}|F00[0-9]/);
+    const match = text.match(/F[0-9]{3}|F00[0-9]|\bFARM_[A-Z0-9_-]+\b|\bFIELD_[A-Z0-9_-]+\b/i);
     if (match) {
       return match[0];
     }
@@ -99,12 +65,7 @@ export function extractActiveFarmFromHistory(conversationHistory = []) {
 }
 
 /**
- * 5-Mode Intent Classifier:
- * 1. GREETING_SMALLTALK: "hi", "hello", "hey bro", "thanks", "ok"
- * 2. VAGUE_UNDERSPECIFIED: "tell me about my farm", "what's the status", "help"
- * 3. FARM_DATA_QUESTION: Specific farm ID or farm telemetry metric
- * 4. GENERAL_AGRICULTURE: Farming concepts, crops, soil science, irrigation
- * 5. OFF_TOPIC: Non-agricultural queries
+ * 5-Mode Intent Classifier
  */
 export function classifyUserIntent(userQuery, selectedDatasetId = 'general', conversationHistory = []) {
   if (!userQuery) return { mode: 'GREETING_SMALLTALK', isStrict: false, activeFarmId: null };
@@ -121,7 +82,7 @@ export function classifyUserIntent(userQuery, selectedDatasetId = 'general', con
     'who are you', 'what are you', 'what can you do', 'tell me about yourself'
   ];
   if (greetingPhrases.includes(qLower) || (/^hi\b|^hello\b|^hey\b/i.test(qLower) && qTrim.split(/\s+/).length <= 3)) {
-    if (!qLower.includes('ndvi') && !qLower.includes('soil') && !qLower.includes('farm') && !qLower.includes('f00')) {
+    if (!qLower.includes('ndvi') && !qLower.includes('soil') && !qLower.includes('farm')) {
       return { mode: 'GREETING_SMALLTALK', isStrict: false, activeFarmId };
     }
   }
@@ -133,9 +94,8 @@ export function classifyUserIntent(userQuery, selectedDatasetId = 'general', con
     'what is happening with my farm', 'give me details', 'status'
   ];
   const isSelected = selectedDatasetId && selectedDatasetId !== 'general';
-  const hasSpecificFarmId = /f[0-9]{3}|f00[0-9]/i.test(qLower);
 
-  if ((vaguePhrases.includes(qLower) || qLower === 'help') && !hasSpecificFarmId && !activeFarmId && !isSelected) {
+  if ((vaguePhrases.includes(qLower) || qLower === 'help') && !activeFarmId && !isSelected) {
     return { mode: 'VAGUE_UNDERSPECIFIED', isStrict: false, activeFarmId: null };
   }
 
@@ -150,14 +110,12 @@ export function classifyUserIntent(userQuery, selectedDatasetId = 'general', con
 
   // 4. Farm Data Question Check
   const farmTelemetryKeywords = [
-    'f001', 'f002', 'f003', 'f004', 'f005', 'f006', 'f007', 'f008', 'f009', 'f999',
     'ndvi', 'soil moisture', 'soil ph', 'ec', 'electrical conductivity', 'ndre', 'ndwi',
     'evi', 'telemetry', 'sensor', 'alert', 'alerts', 'root-zone', 'drip', 'fertigation',
-    'risk', 'curling', 'scorching', 'vineyard', 'temperature', 'humidity', 'rainfall',
-    'its moisture', 'its ndvi', 'its soil', 'its status', 'and f004', 'and f001'
+    'risk', 'temperature', 'humidity', 'rainfall', 'its moisture', 'its ndvi', 'its soil', 'its status', 'farm'
   ];
 
-  const mentionsFarm = farmTelemetryKeywords.some(kw => qLower.includes(kw)) || hasSpecificFarmId;
+  const mentionsFarm = farmTelemetryKeywords.some(kw => qLower.includes(kw));
   const isFollowUpWithContext = (qLower.includes('its') || qLower.includes('and')) && activeFarmId !== null;
 
   if (mentionsFarm || isSelected || isFollowUpWithContext) {

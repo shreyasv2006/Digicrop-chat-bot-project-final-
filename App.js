@@ -20,10 +20,13 @@ import VegetationIndices from './src/screens/VegetationIndices';
 import SavedConversations from './src/screens/SavedConversations';
 import Settings from './src/screens/Settings';
 
+import UploadDatasetModal from './src/components/UploadDatasetModal';
+
 export default function App() {
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [currentScreen, setCurrentScreen] = useState('AI Assistant');
   const [auditModalVisible, setAuditModalVisible] = useState(false);
+  const [uploadModalVisible, setUploadModalVisible] = useState(false);
   const [sessionResetTrigger, setSessionResetTrigger] = useState(0);
 
   const [fontsLoaded] = useFonts({
@@ -42,7 +45,6 @@ export default function App() {
     injectWebFonts();
   }, []);
 
-
   const toggleTheme = () => setIsDarkMode(!isDarkMode);
   const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
 
@@ -55,26 +57,28 @@ export default function App() {
     datasetService.notifyListeners();
   };
 
+  const openUploadModal = () => setUploadModalVisible(true);
+
   const renderScreen = () => {
     switch (currentScreen) {
       case 'Dashboard':
-        return <DashboardOverview theme={theme} onNavigate={setCurrentScreen} isDesktop={isDesktop} />;
+        return <DashboardOverview theme={theme} onNavigate={setCurrentScreen} isDesktop={isDesktop} onOpenUploadModal={openUploadModal} />;
       case 'AI Assistant':
-        return <AIAssistant theme={theme} isDesktop={isDesktop} sessionResetTrigger={sessionResetTrigger} />;
+        return <AIAssistant theme={theme} isDesktop={isDesktop} sessionResetTrigger={sessionResetTrigger} onOpenUploadModal={openUploadModal} />;
       case 'Crop Health':
-        return <CropHealth theme={theme} onNavigate={setCurrentScreen} />;
+        return <CropHealth theme={theme} onNavigate={setCurrentScreen} onOpenUploadModal={openUploadModal} />;
       case 'Weather Insights':
-        return <WeatherInsights theme={theme} />;
+        return <WeatherInsights theme={theme} onOpenUploadModal={openUploadModal} />;
       case 'Soil Analysis':
-        return <SoilAnalysis theme={theme} />;
+        return <SoilAnalysis theme={theme} onOpenUploadModal={openUploadModal} />;
       case 'Vegetation Indices':
-        return <VegetationIndices theme={theme} />;
+        return <VegetationIndices theme={theme} onOpenUploadModal={openUploadModal} />;
       case 'Saved':
         return <SavedConversations theme={theme} onNavigate={setCurrentScreen} />;
       case 'Settings':
-        return <Settings theme={theme} isDarkMode={isDarkMode} toggleTheme={toggleTheme} />;
+        return <Settings theme={theme} isDarkMode={isDarkMode} toggleTheme={toggleTheme} onOpenUploadModal={openUploadModal} onResetApp={() => setCurrentScreen('AI Assistant')} />;
       default:
-        return <AIAssistant theme={theme} isDesktop={isDesktop} sessionResetTrigger={sessionResetTrigger} />;
+        return <AIAssistant theme={theme} isDesktop={isDesktop} sessionResetTrigger={sessionResetTrigger} onOpenUploadModal={openUploadModal} />;
     }
   };
 
@@ -111,6 +115,7 @@ export default function App() {
               title={currentScreen}
               onNewSession={handleNewSession}
               onSyncLiveData={handleSyncLiveData}
+              onOpenUploadModal={openUploadModal}
               onOpenAuditLog={() => setAuditModalVisible(true)}
             />
             <View style={styles.screenWrapper}>
@@ -123,6 +128,13 @@ export default function App() {
           visible={auditModalVisible}
           onClose={() => setAuditModalVisible(false)}
           theme={theme}
+        />
+
+        <UploadDatasetModal
+          visible={uploadModalVisible}
+          onClose={() => setUploadModalVisible(false)}
+          theme={theme}
+          onUploadSuccess={() => datasetService.notifyListeners()}
         />
       </SafeAreaView>
     </SafeAreaProvider>

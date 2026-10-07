@@ -1,15 +1,30 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SIZES } from '../constants/theme';
 import { datasetService } from '../services/datasetService';
-import { getRealFarms, getRealAlerts, getThresholdStatus } from '../services/datasetData';
+import { getRealFarms, getRealAlerts, getThresholdStatus, getRecentActivity } from '../services/datasetData';
 
 export default function DashboardOverview({ theme, onNavigate, onOpenUploadModal }) {
   const { width } = useWindowDimensions();
-  const allDatasets = datasetService.getAllDatasets();
-  const realFarms = getRealFarms();
-  const realAlerts = getRealAlerts();
+  const [datasets, setDatasets] = useState([]);
+  const [realFarms, setRealFarms] = useState([]);
+  const [realAlerts, setRealAlerts] = useState([]);
+  const [recentActivity, setRecentActivity] = useState([]);
+
+  const loadData = () => {
+    const ds = datasetService.getAllDatasets();
+    setDatasets(ds);
+    setRealFarms(getRealFarms());
+    setRealAlerts(getRealAlerts());
+    setRecentActivity(getRecentActivity());
+  };
+
+  useEffect(() => {
+    loadData();
+    const unsub = datasetService.subscribe(loadData);
+    return () => unsub();
+  }, []);
 
   const getColCount = () => {
     if (width < 600) return 1;
@@ -20,44 +35,32 @@ export default function DashboardOverview({ theme, onNavigate, onOpenUploadModal
   const colCount = getColCount();
   const cardWidth = `${100 / colCount}%`;
 
-  // Compute real average NDVI across loaded farms
-  const ndviValues = realFarms.map(f => f.ndvi).filter(v => v !== null && !isNaN(v));
-  const avgNdvi = ndviValues.length > 0 ? (ndviValues.reduce((a, b) => a + b, 0) / ndviValues.length).toFixed(2) : null;
-  const avgNdviStatus = avgNdvi !== null ? getThresholdStatus('NDVI', parseFloat(avgNdvi)) : null;
+  const uploadedCount = datasets.filter(d => d.source === 'Uploaded').length;
+  const pastedCount = datasets.filter(d => d.source === 'Pasted').length;
 
   const realStats = [
     { 
       title: 'Loaded Datasets', 
-      value: `${allDatasets.length}`, 
-      desc: allDatasets.length > 0 ? `${allDatasets.filter(d=>d.isCustom).length} Custom • ${allDatasets.filter(d=>!d.isCustom).length} Bundled` : 'No datasets loaded', 
+      value: `${datasets.length}`, 
+      desc: datasets.length > 0 ? `${uploadedCount} Uploaded • ${pastedCount} Pasted` : 'No datasets loaded', 
       icon: 'document-text-outline', 
       target: 'AI Assistant' 
     },
     { 
       title: 'Monitored Farms', 
       value: `${realFarms.length}`, 
-      desc: realFarms.length > 0 ? `Farms (${realFarms.map(f=>f.id).join(', ')})` : 'No farm IDs found', 
+      desc: realFarms.length > 0 ? `${realFarms.length} Farms Detected` : 'No farm records found', 
       icon: 'location-outline', 
       target: 'Crop Health' 
     },
     { 
       title: 'Active Alerts', 
       value: `${realAlerts.length}`, 
-      desc: realAlerts.length > 0 ? `${realAlerts.filter(a=>a.severity==='Critical').length} Critical Alerts` : 'Zero active alerts', 
+      desc: realAlerts.length > 0 ? `${realAlerts.filter(a=>a.severity==='Critical').length} Critical Warnings` : 'Zero active alerts', 
       icon: 'warning-outline', 
       target: 'Crop Health' 
     },
   ];
-
-  if (avgNdvi !== null) {
-    realStats.push({
-      title: 'Average NDVI',
-      value: `${avgNdvi}`,
-      desc: avgNdviStatus ? avgNdviStatus.label : 'Calculated from real farm data',
-      icon: 'stats-chart-outline',
-      target: 'Vegetation Indices',
-    });
-  }
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -97,6 +100,20 @@ export default function DashboardOverview({ theme, onNavigate, onOpenUploadModal
         ))}
       </View>
 
+      {/* Recent Activity List (Hide if empty) */}
+      {recentActivity.length > 0 && (
+        <View style={[styles.section, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+          <Text style={[styles.sectionTitle, { color: theme.text, marginBottom: 12 }]}>Recent Activity</Text>
+          {recentActivity.map((act) => (
+            <View key={act.id} style={styles.activityRow}>
+              <Ionicons name="time-outline" size={14} color={theme.primary} style={{ marginRight: 8 }} />
+              <Text style={[styles.activityText, { color: theme.text }]}>{act.text}</Text>
+              <Text style={[styles.activityTime, { color: theme.textSecondary }]}>{act.time}</Text>
+            </View>
+          ))}
+        </View>
+      )}
+
       {/* Real Farm Telemetry Table */}
       <View style={[styles.section, { backgroundColor: theme.surface, borderColor: theme.border }]}>
         <View style={styles.sectionHeader}>
@@ -131,7 +148,7 @@ export default function DashboardOverview({ theme, onNavigate, onOpenUploadModal
             <View style={[styles.divider, { backgroundColor: theme.border }]} />
 
             {realFarms.map((farm) => {
-              const ndviStatus = farm.ndvi !== null ? getThresholdStatus('NDVI', farm.ndvi) : null;
+              const ndviStatus = farm.ndvi !== null ? getThresholdStatus(farm.ndvi, 'ndvi') : null;
               return (
                 <View key={farm.id} style={styles.tableRow}>
                   <View style={{ flex: 1 }}>
@@ -150,7 +167,7 @@ export default function DashboardOverview({ theme, onNavigate, onOpenUploadModal
                     )}
                   </View>
                   <Text style={[styles.tableText, { color: theme.text }]}>
-                    {farm.soilMoisture15cm !== null ? `${farm.soilMoisture15cm}%` : 'N/A'}
+                    {farm.soilMoisture !== null ? `${farm.soilMoisture}%` : 'N/A'}
                   </Text>
                 </View>
               );
@@ -310,5 +327,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 6,
+  },
+  activityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.05)',
+  },
+  activityText: {
+    flex: 1,
+    fontSize: 13,
+  },
+  activityTime: {
+    fontSize: 11,
   }
 });

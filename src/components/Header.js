@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SIZES } from '../constants/theme';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import DCLogo from './DCLogo';
 import { datasetService } from '../services/datasetService';
+import { getUserProfileFromStorage } from '../screens/Settings';
 
 export default function Header({ 
   theme, 
@@ -14,12 +15,24 @@ export default function Header({
   isDesktop, 
   title, 
   onNewSession,
-  onSyncLiveData,
-  onOpenAuditLog,
+  onOpenUploadModal,
 }) {
   const insets = useSafeAreaInsets();
+  const [profileName, setProfileName] = useState('');
   const farmIds = datasetService.getLoadedFarmIds();
   const farmLabel = farmIds.length > 0 ? `Farms (${farmIds.join(', ')})` : null;
+
+  useEffect(() => {
+    const p = getUserProfileFromStorage();
+    setProfileName(p.displayName || '');
+  }, [title]);
+
+  const getInitials = () => {
+    if (!profileName.trim()) return 'DC';
+    const parts = profileName.trim().split(/\s+/);
+    if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  };
 
   return (
     <View style={[
@@ -61,9 +74,18 @@ export default function Header({
         </View>
       )}
 
-
       {/* Controls & User Profile */}
       <View style={styles.controlsRow}>
+        {/* Add Dataset Button */}
+        <TouchableOpacity 
+          style={[styles.addDatasetBtn, { backgroundColor: theme.cardBg, borderColor: theme.border }]}
+          onPress={onOpenUploadModal}
+          title="Add or paste a custom dataset (.csv / .md / .txt)"
+        >
+          <Ionicons name="cloud-upload-outline" size={16} color={theme.primary} style={{ marginRight: 4 }} />
+          <Text style={[styles.addDatasetText, { color: theme.text }]}>+ Add Dataset</Text>
+        </TouchableOpacity>
+
         {/* New Session Button */}
         <TouchableOpacity 
           style={[styles.newSessionBtn, { backgroundColor: theme.primary }]}
@@ -78,10 +100,10 @@ export default function Header({
           <Ionicons name={isDarkMode ? "sunny" : "moon"} size={16} color={theme.text} />
         </TouchableOpacity>
 
-        {/* Profile */}
+        {/* Profile Avatar */}
         <View style={[styles.profilePill, { borderLeftColor: theme.border }]}>
           <View style={[styles.avatarBox, { backgroundColor: theme.primary + '25', borderColor: theme.primary + '50' }]}>
-            <Text style={[styles.avatarText, { color: theme.primary }]}>AO</Text>
+            <Text style={[styles.avatarText, { color: theme.primary }]}>{getInitials()}</Text>
           </View>
         </View>
       </View>
@@ -143,6 +165,19 @@ const styles = StyleSheet.create({
   controlsRow: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  addDatasetBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginRight: 10,
+  },
+  addDatasetText: {
+    fontSize: 12,
+    fontWeight: 'bold',
   },
   newSessionBtn: {
     flexDirection: 'row',

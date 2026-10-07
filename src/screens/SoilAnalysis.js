@@ -6,28 +6,33 @@ import { getRealFarms, getThresholdStatus } from '../services/datasetData';
 import datasetService from '../services/datasetService';
 import UploadDatasetModal from '../components/UploadDatasetModal';
 
-export default function SoilAnalysis({ theme, onNavigate }) {
+export default function SoilAnalysis({ theme, onOpenUploadModal }) {
   const [farms, setFarms] = useState([]);
-  const [thresholds, setThresholds] = useState({});
+  const [selectedFarmId, setSelectedFarmId] = useState('ALL');
   const [modalVisible, setModalVisible] = useState(false);
 
   const loadData = () => {
-    const data = getRealFarms();
-    setFarms(data.farms || []);
-    setThresholds(data.thresholds || {});
+    const realFarms = getRealFarms();
+    setFarms(realFarms);
   };
 
   useEffect(() => {
     loadData();
-    const unsubscribe = datasetService.subscribe(() => {
-      loadData();
-    });
-    return () => unsubscribe();
+    const unsub = datasetService.subscribe(loadData);
+    return () => unsub();
   }, []);
 
-  // Filter farms that have at least one soil reading
+  const handleOpenModal = () => {
+    if (onOpenUploadModal) {
+      onOpenUploadModal();
+    } else {
+      setModalVisible(true);
+    }
+  };
+
   const soilFarms = farms.filter(f => 
-    f.ph != null || f.soilMoisture != null || f.temperature != null || f.ec != null || f.nitrogen != null
+    f.ph != null || f.soilMoisture != null || f.temperature != null || f.ec != null || f.nitrogen != null ||
+    (f.timeSeries && f.timeSeries.some(t => t.ph != null || t.soilMoisture != null))
   );
 
   if (soilFarms.length === 0) {
@@ -43,10 +48,10 @@ export default function SoilAnalysis({ theme, onNavigate }) {
           </Text>
           <TouchableOpacity
             style={[styles.actionBtn, { backgroundColor: theme.primary }]}
-            onPress={() => setModalVisible(true)}
+            onPress={handleOpenModal}
           >
             <Ionicons name="add-circle-outline" size={20} color="#FFF" />
-            <Text style={styles.actionBtnText}>Add Soil Dataset</Text>
+            <Text style={styles.actionBtnText}>+ Add Dataset</Text>
           </TouchableOpacity>
         </View>
 
@@ -54,19 +59,51 @@ export default function SoilAnalysis({ theme, onNavigate }) {
           visible={modalVisible}
           onClose={() => setModalVisible(false)}
           theme={theme}
-          onUploadSuccess={() => loadData()}
+          onUploadSuccess={loadData}
         />
       </View>
     );
   }
 
+  const displayedFarms = selectedFarmId === 'ALL' ? soilFarms : soilFarms.filter(f => f.id === selectedFarmId);
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-      {soilFarms.map((farm) => {
-        const phStatus = farm.ph != null ? getThresholdStatus(farm.ph, 'ph', thresholds) : null;
-        const moistureStatus = farm.soilMoisture != null ? getThresholdStatus(farm.soilMoisture, 'moisture', thresholds) : null;
-        const ecStatus = farm.ec != null ? getThresholdStatus(farm.ec, 'ec', thresholds) : null;
-        const tempStatus = farm.temperature != null ? getThresholdStatus(farm.temperature, 'temperature', thresholds) : null;
+      {/* Farm Filter Pills if > 1 farm */}
+      {soilFarms.length > 1 && (
+        <View style={styles.filterRow}>
+          <TouchableOpacity
+            style={[
+              styles.filterPill,
+              selectedFarmId === 'ALL' ? { backgroundColor: theme.primary } : { backgroundColor: theme.surface, borderColor: theme.border }
+            ]}
+            onPress={() => setSelectedFarmId('ALL')}
+          >
+            <Text style={[styles.filterText, selectedFarmId === 'ALL' ? { color: '#FFF' } : { color: theme.text }]}>All Farms ({soilFarms.length})</Text>
+          </TouchableOpacity>
+
+          {soilFarms.map(f => (
+            <TouchableOpacity
+              key={f.id}
+              style={[
+                styles.filterPill,
+                selectedFarmId === f.id ? { backgroundColor: theme.primary } : { backgroundColor: theme.surface, borderColor: theme.border }
+              ]}
+              onPress={() => setSelectedFarmId(f.id)}
+            >
+              <Text style={[styles.filterText, selectedFarmId === f.id ? { color: '#FFF' } : { color: theme.text }]}>{f.id}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+
+      {displayedFarms.map((farm) => {
+        const phStatus = farm.ph != null ? getThresholdStatus(farm.ph, 'ph') : null;
+        const moistureStatus = farm.soilMoisture != null ? getThresholdStatus(farm.soilMoisture, 'moisture') : null;
+        const ecStatus = farm.ec != null ? getThresholdStatus(farm.ec, 'ec') : null;
+
+        // Extract dated series
+        const validSeries = (farm.timeSeries || []).filter(t => t.soilMoisture != null || t.ph != null);
 
         return (
           <View key={farm.id} style={[styles.farmBlock, { backgroundColor: theme.surface, borderColor: theme.border }]}>
@@ -83,7 +120,7 @@ export default function SoilAnalysis({ theme, onNavigate }) {
                   {phStatus ? (
                     <Text style={[styles.statDesc, { color: phStatus.color }]}>{phStatus.label}</Text>
                   ) : (
-                    <Text style={[styles.statDesc, { color: theme.textSecondary }]}>Raw Reading</Text>
+                    <Text style={[styles.statDesc, { color: theme.textSecondary }]}>Raw Metric</Text>
                   )}
                 </View>
               )}
@@ -95,7 +132,7 @@ export default function SoilAnalysis({ theme, onNavigate }) {
                   {moistureStatus ? (
                     <Text style={[styles.statDesc, { color: moistureStatus.color }]}>{moistureStatus.label}</Text>
                   ) : (
-                    <Text style={[styles.statDesc, { color: theme.textSecondary }]}>Raw Reading</Text>
+                    <Text style={[styles.statDesc, { color: theme.textSecondary }]}>Raw Metric</Text>
                   )}
                 </View>
               )}
@@ -107,7 +144,7 @@ export default function SoilAnalysis({ theme, onNavigate }) {
                   {ecStatus ? (
                     <Text style={[styles.statDesc, { color: ecStatus.color }]}>{ecStatus.label}</Text>
                   ) : (
-                    <Text style={[styles.statDesc, { color: theme.textSecondary }]}>Raw Reading</Text>
+                    <Text style={[styles.statDesc, { color: theme.textSecondary }]}>Raw Metric</Text>
                   )}
                 </View>
               )}
@@ -116,37 +153,30 @@ export default function SoilAnalysis({ theme, onNavigate }) {
                 <View style={[styles.statCard, { backgroundColor: theme.background, borderColor: theme.border }]}>
                   <Text style={[styles.statLabel, { color: theme.textSecondary }]}>Soil Temperature</Text>
                   <Text style={[styles.statValue, { color: theme.text }]}>{farm.temperature}°C</Text>
-                  {tempStatus ? (
-                    <Text style={[styles.statDesc, { color: tempStatus.color }]}>{tempStatus.label}</Text>
-                  ) : (
-                    <Text style={[styles.statDesc, { color: theme.textSecondary }]}>Raw Reading</Text>
-                  )}
+                  <Text style={[styles.statDesc, { color: theme.textSecondary }]}>Raw Metric</Text>
                 </View>
               )}
             </View>
 
-            {/* Nutrients NPK section if available */}
-            {(farm.nitrogen != null || farm.phosphorus != null || farm.potassium != null) && (
-              <View style={styles.npkSection}>
-                <Text style={[styles.sectionTitle, { color: theme.text }]}>Real NPK Soil Metrics</Text>
-                {farm.nitrogen != null && (
-                  <View style={styles.nutrientRow}>
-                    <Text style={[styles.nutrientName, { color: theme.text }]}>Nitrogen (N)</Text>
-                    <Text style={[styles.nutrientVal, { color: theme.text }]}>{farm.nitrogen} mg/kg</Text>
-                  </View>
-                )}
-                {farm.phosphorus != null && (
-                  <View style={styles.nutrientRow}>
-                    <Text style={[styles.nutrientName, { color: theme.text }]}>Phosphorus (P)</Text>
-                    <Text style={[styles.nutrientVal, { color: theme.text }]}>{farm.phosphorus} mg/kg</Text>
-                  </View>
-                )}
-                {farm.potassium != null && (
-                  <View style={styles.nutrientRow}>
-                    <Text style={[styles.nutrientName, { color: theme.text }]}>Potassium (K)</Text>
-                    <Text style={[styles.nutrientVal, { color: theme.text }]}>{farm.potassium} mg/kg</Text>
-                  </View>
-                )}
+            {/* Time Series Bar Chart over real points if > 1 dated rows */}
+            {validSeries.length > 1 && (
+              <View style={styles.chartBlock}>
+                <Text style={[styles.sectionTitle, { color: theme.text }]}>Soil Moisture Trend (Real Points)</Text>
+                <View style={styles.barChartContainer}>
+                  {validSeries.map((item, idx) => {
+                    const val = item.soilMoisture || 0;
+                    const pct = Math.min(100, Math.max(10, val * 2));
+                    return (
+                      <View key={idx} style={styles.barCol}>
+                        <Text style={[styles.barValText, { color: theme.text }]}>{val}%</Text>
+                        <View style={[styles.barTrack, { backgroundColor: theme.border }]}>
+                          <View style={[styles.barFill, { backgroundColor: theme.primary, height: `${pct}%` }]} />
+                        </View>
+                        <Text style={[styles.barDateText, { color: theme.textSecondary }]}>{item.date.slice(-5)}</Text>
+                      </View>
+                    );
+                  })}
+                </View>
               </View>
             )}
           </View>
@@ -157,7 +187,7 @@ export default function SoilAnalysis({ theme, onNavigate }) {
         visible={modalVisible}
         onClose={() => setModalVisible(false)}
         theme={theme}
-        onUploadSuccess={() => loadData()}
+        onUploadSuccess={loadData}
       />
     </ScrollView>
   );
@@ -169,6 +199,22 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: SIZES.lg,
+  },
+  filterRow: {
+    flexDirection: 'row',
+    gap: SIZES.sm,
+    marginBottom: SIZES.lg,
+    flexWrap: 'wrap',
+  },
+  filterPill: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  filterText: {
+    fontSize: 13,
+    fontWeight: 'bold',
   },
   emptyContainer: {
     flex: 1,
@@ -255,28 +301,46 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
-  npkSection: {
+  chartBlock: {
     marginTop: SIZES.lg,
     paddingTop: SIZES.md,
     borderTopWidth: 1,
     borderTopColor: 'rgba(255,255,255,0.1)',
   },
   sectionTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: 'bold',
     marginBottom: SIZES.md,
   },
-  nutrientRow: {
+  barChartContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 6,
+    alignItems: 'flex-end',
+    gap: SIZES.md,
+    height: 120,
+    paddingTop: 10,
   },
-  nutrientName: {
-    fontSize: 14,
+  barCol: {
+    alignItems: 'center',
+    flex: 1,
   },
-  nutrientVal: {
-    fontSize: 14,
+  barValText: {
+    fontSize: 10,
     fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  barTrack: {
+    width: 24,
+    height: 80,
+    borderRadius: 4,
+    justifyContent: 'flex-end',
+    overflow: 'hidden',
+  },
+  barFill: {
+    width: '100%',
+    borderRadius: 4,
+  },
+  barDateText: {
+    fontSize: 10,
+    marginTop: 4,
   }
 });
-

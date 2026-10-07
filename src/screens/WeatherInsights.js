@@ -1,95 +1,126 @@
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, useWindowDimensions } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SIZES } from '../constants/theme';
 import { getRealWeatherData } from '../services/datasetData';
+import datasetService from '../services/datasetService';
+import UploadDatasetModal from '../components/UploadDatasetModal';
 
 export default function WeatherInsights({ theme, onOpenUploadModal }) {
-  const { width } = useWindowDimensions();
-  const isLarge = width >= 768;
-  const { current, forecast } = getRealWeatherData();
+  const [weatherRows, setWeatherRows] = useState([]);
+  const [modalVisible, setModalVisible] = useState(false);
 
-  if (!current && forecast.length === 0) {
+  const loadData = () => {
+    setWeatherRows(getRealWeatherData());
+  };
+
+  useEffect(() => {
+    loadData();
+    const unsub = datasetService.subscribe(loadData);
+    return () => unsub();
+  }, []);
+
+  const handleOpenModal = () => {
+    if (onOpenUploadModal) {
+      onOpenUploadModal();
+    } else {
+      setModalVisible(true);
+    }
+  };
+
+  if (weatherRows.length === 0) {
     return (
-      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-        <View style={[styles.card, styles.emptyCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-          <Ionicons name="partly-sunny-outline" size={40} color={theme.textSecondary} style={{ marginBottom: 12 }} />
+      <View style={styles.container}>
+        <View style={styles.emptyContainer}>
+          <View style={[styles.iconCircle, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <Ionicons name="partly-sunny-outline" size={48} color={theme.textSecondary} />
+          </View>
           <Text style={[styles.emptyTitle, { color: theme.text }]}>No Weather Data Loaded</Text>
           <Text style={[styles.emptyDesc, { color: theme.textSecondary }]}>
-            No weather or agro-meteorology records are present in loaded datasets. Add a weather dataset (.csv or .md) to inspect real temperature, rainfall, and forecasts.
+            Upload or add a dataset containing weather logs (date, temperature, rainfall, humidity, wind speed) to view weather insights.
           </Text>
-          <TouchableOpacity 
-            style={[styles.addBtn, { backgroundColor: theme.primary }]}
-            onPress={onOpenUploadModal}
+          <TouchableOpacity
+            style={[styles.actionBtn, { backgroundColor: theme.primary }]}
+            onPress={handleOpenModal}
           >
-            <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 13 }}>+ Add Weather Dataset</Text>
+            <Ionicons name="add-circle-outline" size={20} color="#FFF" />
+            <Text style={styles.actionBtnText}>+ Add Dataset</Text>
           </TouchableOpacity>
         </View>
-      </ScrollView>
+
+        <UploadDatasetModal
+          visible={modalVisible}
+          onClose={() => setModalVisible(false)}
+          theme={theme}
+          onUploadSuccess={loadData}
+        />
+      </View>
     );
   }
 
+  // Check which columns actually exist in dataset
+  const hasTemp = weatherRows.some(r => r.temperature != null);
+  const hasRain = weatherRows.some(r => r.rainfall != null);
+  const hasHum = weatherRows.some(r => r.humidity != null);
+  const hasWind = weatherRows.some(r => r.windSpeed != null);
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-      {/* Current Weather Card */}
-      {current && (
-        <View style={[styles.mainWeatherCard, { backgroundColor: theme.primary, borderColor: theme.border }]}>
-          <View style={styles.weatherLeft}>
-            <Text style={styles.currentTemp}>{current.temperature || 'N/A'}</Text>
-            <Text style={styles.currentCondition}>{current.condition}</Text>
-            <Text style={styles.weatherLocation}>{current.location}</Text>
+      {/* Real Weather Records Table */}
+      <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+        <Text style={[styles.cardTitle, { color: theme.text }]}>Real Weather Records</Text>
+
+        <View style={styles.tableHeader}>
+          <Text style={[styles.th, { color: theme.textSecondary, flex: 1 }]}>Date</Text>
+          <Text style={[styles.th, { color: theme.textSecondary, flex: 1 }]}>Location</Text>
+          {hasTemp && <Text style={[styles.th, { color: theme.textSecondary, flex: 1 }]}>Temp</Text>}
+          {hasRain && <Text style={[styles.th, { color: theme.textSecondary, flex: 1 }]}>Rainfall</Text>}
+          {hasHum && <Text style={[styles.th, { color: theme.textSecondary, flex: 1 }]}>Humidity</Text>}
+          {hasWind && <Text style={[styles.th, { color: theme.textSecondary, flex: 1 }]}>Wind</Text>}
+        </View>
+
+        <View style={[styles.divider, { backgroundColor: theme.border }]} />
+
+        {weatherRows.map((r, idx) => (
+          <View key={idx} style={styles.tableRow}>
+            <Text style={[styles.tdBold, { color: theme.text, flex: 1 }]}>{r.date}</Text>
+            <Text style={[styles.td, { color: theme.textSecondary, flex: 1 }]}>{r.location}</Text>
+            {hasTemp && <Text style={[styles.td, { color: theme.text, flex: 1 }]}>{r.temperature || '-'}</Text>}
+            {hasRain && <Text style={[styles.td, { color: theme.text, flex: 1 }]}>{r.rainfall || '-'}</Text>}
+            {hasHum && <Text style={[styles.td, { color: theme.text, flex: 1 }]}>{r.humidity || '-'}</Text>}
+            {hasWind && <Text style={[styles.td, { color: theme.text, flex: 1 }]}>{r.windSpeed || '-'}</Text>}
           </View>
-          <Ionicons name="partly-sunny" size={72} color="#FFF" style={styles.weatherLargeIcon} />
-        </View>
-      )}
+        ))}
+      </View>
 
-      {/* Grid of Weather Metrics */}
-      {current && (
-        <View style={[styles.metricsContainer, { flexDirection: isLarge ? 'row' : 'column' }]}>
-          {current.humidity && (
-            <View style={[styles.metricCard, { backgroundColor: theme.surface, borderColor: theme.border, flex: 1 }]}>
-              <Ionicons name="water-outline" size={24} color={theme.primary} />
-              <View style={styles.metricText}>
-                <Text style={[styles.metricLabel, { color: theme.textSecondary }]}>Humidity</Text>
-                <Text style={[styles.metricValue, { color: theme.text }]}>{current.humidity}</Text>
-              </View>
-            </View>
-          )}
-
-          {current.windSpeed && (
-            <View style={[styles.metricCard, { backgroundColor: theme.surface, borderColor: theme.border, flex: 1 }]}>
-              <Ionicons name="speedometer-outline" size={24} color={theme.primary} />
-              <View style={styles.metricText}>
-                <Text style={[styles.metricLabel, { color: theme.textSecondary }]}>Wind Speed</Text>
-                <Text style={[styles.metricValue, { color: theme.text }]}>{current.windSpeed}</Text>
-              </View>
-            </View>
-          )}
-
-          {current.precipitation && (
-            <View style={[styles.metricCard, { backgroundColor: theme.surface, borderColor: theme.border, flex: 1 }]}>
-              <Ionicons name="umbrella-outline" size={24} color={theme.primary} />
-              <View style={styles.metricText}>
-                <Text style={[styles.metricLabel, { color: theme.textSecondary }]}>Precipitation / Rain</Text>
-                <Text style={[styles.metricValue, { color: theme.text }]}>{current.precipitation}</Text>
-              </View>
-            </View>
-          )}
-        </View>
-      )}
-
-      {/* Forecast List */}
-      {forecast.length > 0 && (
+      {/* Temperature / Rainfall Real Points Chart if > 1 record */}
+      {weatherRows.length > 1 && (hasTemp || hasRain) && (
         <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-          <Text style={[styles.cardTitle, { color: theme.text }]}>Observed Weather Records</Text>
-          {forecast.map((item, index) => (
-            <View key={index} style={styles.forecastRow}>
-              <Text style={[styles.forecastDay, { color: theme.text }]}>{item.day}</Text>
-              <Text style={[styles.forecastText, { color: theme.textSecondary }]}>{item.text}</Text>
-            </View>
-          ))}
+          <Text style={[styles.cardTitle, { color: theme.text }]}>Weather Trend (Real Points Only)</Text>
+          <View style={styles.barChartContainer}>
+            {weatherRows.map((r, idx) => {
+              const rawTemp = r.temperature ? parseFloat(r.temperature) : 0;
+              const pct = Math.min(100, Math.max(10, rawTemp * 2.5));
+              return (
+                <View key={idx} style={styles.barCol}>
+                  <Text style={[styles.barValText, { color: theme.text }]}>{r.temperature || r.rainfall || ''}</Text>
+                  <View style={[styles.barTrack, { backgroundColor: theme.border }]}>
+                    <View style={[styles.barFill, { backgroundColor: theme.primary, height: `${pct}%` }]} />
+                  </View>
+                  <Text style={[styles.barDateText, { color: theme.textSecondary }]}>{r.date.slice(-5)}</Text>
+                </View>
+              );
+            })}
+          </View>
         </View>
       )}
+
+      <UploadDatasetModal
+        visible={modalVisible}
+        onClose={() => setModalVisible(false)}
+        theme={theme}
+        onUploadSuccess={loadData}
+      />
     </ScrollView>
   );
 }
@@ -101,102 +132,113 @@ const styles = StyleSheet.create({
   content: {
     padding: SIZES.lg,
   },
-  emptyCard: {
+  emptyContainer: {
+    flex: 1,
     alignItems: 'center',
-    paddingVertical: 40,
-    paddingHorizontal: 20,
+    justifyContent: 'center',
+    padding: SIZES.xxl,
+    minHeight: 400,
+  },
+  iconCircle: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: SIZES.lg,
   },
   emptyTitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: 'bold',
-    marginBottom: 6,
+    marginBottom: SIZES.sm,
+    textAlign: 'center',
   },
   emptyDesc: {
-    fontSize: 14,
+    fontSize: 15,
+    lineHeight: 22,
     textAlign: 'center',
-    maxWidth: 480,
-    lineHeight: 20,
-    marginBottom: 16,
+    maxWidth: 440,
+    marginBottom: SIZES.xl,
   },
-  addBtn: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
-  mainWeatherCard: {
-    borderRadius: SIZES.radiusLg,
-    padding: SIZES.xl,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: SIZES.lg,
-  },
-  weatherLeft: {
-    flex: 1,
-  },
-  currentTemp: {
-    fontSize: 42,
-    fontWeight: 'bold',
-    color: '#FFF',
-  },
-  currentCondition: {
-    fontSize: 18,
-    color: '#FFF',
-    fontWeight: '600',
-    marginVertical: 4,
-  },
-  weatherLocation: {
-    fontSize: 13,
-    color: 'rgba(255, 255, 255, 0.85)',
-  },
-  weatherLargeIcon: {
-    opacity: 0.9,
-  },
-  metricsContainer: {
-    gap: SIZES.md,
-    marginBottom: SIZES.lg,
-  },
-  metricCard: {
-    borderWidth: 1,
-    borderRadius: SIZES.radius,
-    padding: SIZES.md,
+  actionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: SIZES.sm,
+    paddingHorizontal: SIZES.xl,
+    paddingVertical: SIZES.md,
+    borderRadius: SIZES.radiusMd,
   },
-  metricText: {
-    flex: 1,
-  },
-  metricLabel: {
-    fontSize: 12,
-  },
-  metricValue: {
+  actionBtnText: {
+    color: '#FFF',
     fontSize: 15,
     fontWeight: 'bold',
-    marginTop: 2,
   },
   card: {
     borderWidth: 1,
     borderRadius: SIZES.radiusLg,
-    padding: SIZES.lg,
+    padding: SIZES.xl,
     marginBottom: SIZES.lg,
   },
   cardTitle: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: 'bold',
     marginBottom: SIZES.md,
   },
-  forecastRow: {
-    paddingVertical: 8,
+  tableHeader: {
+    flexDirection: 'row',
+    paddingVertical: 6,
+  },
+  tableRow: {
+    flexDirection: 'row',
+    paddingVertical: 10,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.05)',
   },
-  forecastDay: {
-    fontSize: 14,
+  th: {
+    fontSize: 12,
     fontWeight: 'bold',
-    marginBottom: 2,
   },
-  forecastText: {
+  tdBold: {
     fontSize: 13,
+    fontWeight: 'bold',
+  },
+  td: {
+    fontSize: 13,
+  },
+  divider: {
+    height: 1,
+    marginVertical: 6,
+  },
+  barChartContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: SIZES.md,
+    height: 120,
+    paddingTop: 10,
+  },
+  barCol: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  barValText: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  barTrack: {
+    width: 24,
+    height: 80,
+    borderRadius: 4,
+    justifyContent: 'flex-end',
+    overflow: 'hidden',
+  },
+  barFill: {
+    width: '100%',
+    borderRadius: 4,
+  },
+  barDateText: {
+    fontSize: 10,
+    marginTop: 4,
   }
 });

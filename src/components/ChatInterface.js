@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MarkdownText from './MarkdownText';
 import UploadDatasetModal from './UploadDatasetModal';
 import { datasetService } from '../services/datasetService';
+import { saveConversationToStorage } from '../services/datasetData';
 
 export default function ChatInterface({
   theme,
@@ -185,6 +186,19 @@ export default function ChatInterface({
                             Source: <Text style={{ fontWeight: '600', color: theme.text }}>{msg.sources.join(', ')}</Text>
                           </Text>
                         </View>
+                        <TouchableOpacity
+                          style={styles.saveBtn}
+                          onPress={() => {
+                            saveConversationToStorage({
+                              title: messages[idx - 1] ? messages[idx - 1].text : 'Saved Answer',
+                              desc: msg.text,
+                            });
+                            if (Platform.OS === 'web') alert('Answer saved! View it in the Saved tab.');
+                          }}
+                        >
+                          <Ionicons name="bookmark-outline" size={13} color={theme.primary} style={{ marginRight: 3 }} />
+                          <Text style={{ fontSize: 11, color: theme.primary, fontWeight: 'bold' }}>Save Answer</Text>
+                        </TouchableOpacity>
                       </View>
                     )}
                   </View>

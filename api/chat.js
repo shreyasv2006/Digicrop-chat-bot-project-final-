@@ -85,42 +85,7 @@ function parseFrontMatter(rawContent) {
 }
 
 function loadServerDatasets() {
-  const datasetDirs = [
-    path.join(__dirname, '../src/datasets'),
-    path.join(__dirname, '../datasets'),
-    path.join(process.cwd(), 'src/datasets'),
-    path.join(process.cwd(), 'datasets'),
-  ];
-
-  const datasets = [];
-  let foundDir = null;
-  for (const dir of datasetDirs) {
-    if (fs.existsSync(dir)) {
-      foundDir = dir;
-      break;
-    }
-  }
-
-  if (foundDir) {
-    const files = fs.readdirSync(foundDir).filter(f => f.endsWith('.md'));
-    files.forEach(file => {
-      const filePath = path.join(foundDir, file);
-      const raw = fs.readFileSync(filePath, 'utf-8');
-      const { metadata, content } = parseFrontMatter(raw);
-      datasets.push({
-        id: file.replace('.md', ''),
-        fileName: file,
-        name: metadata.name || file.replace('.md', '').toUpperCase(),
-        category: metadata.category || 'General',
-        farmId: metadata.farm_id || null,
-        crop: metadata.crop || null,
-        description: metadata.description || 'DigiCrop knowledge dataset.',
-        content,
-        raw,
-      });
-    });
-  }
-  return datasets;
+  return [];
 }
 
 function extractActiveFarmFromHistory(conversationHistory = []) {
@@ -322,7 +287,7 @@ module.exports = async function handler(req, res) {
     if (mode === 'GREETING_SMALLTALK') {
       return res.status(200).json({
         geminiConnected: true,
-        answer: "Hello! 👋 I'm DigiCrop AI, your agricultural assistant.\n\nHow can I help you today? Here are a few things you can ask me:\n- **Crop Advice**: Best practices for grapes or wheat\n- **Telemetry Metrics**: Ask about NDVI or soil moisture\n- **Farm Analysis**: Check status for **F001** (Nashik Vineyard) or **F004** (Pune Wheat)",
+        answer: "Hello! 👋 I'm DigiCrop AI, your agricultural assistant.\n\nHow can I help you today? Ask me any agricultural question or upload a dataset to analyze your farm metrics.",
         sources: ['DigiCrop Guidance'],
         modelUsed: groqKey ? groqModel : 'Gemini Flash',
         mode,
@@ -333,7 +298,7 @@ module.exports = async function handler(req, res) {
     if (mode === 'VAGUE_UNDERSPECIFIED') {
       return res.status(200).json({
         geminiConnected: true,
-        answer: "Which farm would you like to inspect: **F001** (Nashik Vineyard) or **F004** (Pune Wheat)? And do you want to check NDVI, soil moisture, weather, or active alerts?",
+        answer: "Which farm or dataset would you like to inspect? Upload or select a dataset to inspect NDVI, soil moisture, weather, or alerts.",
         sources: ['DigiCrop Guidance'],
         modelUsed: groqKey ? groqModel : 'Gemini Flash',
         mode,

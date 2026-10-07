@@ -147,8 +147,22 @@ What is ideal EC for grape soil?,Ideal Electrical Conductivity (EC) for table gr
 
 class DatasetService {
   constructor() {
-    this.builtinDatasets = getBuiltinDatasets();
+    this.builtinDatasets = [];
     this.customDatasets = this.loadCustomDatasetsFromStorage();
+    this.listeners = [];
+  }
+
+  subscribe(listener) {
+    this.listeners.push(listener);
+    return () => {
+      this.listeners = this.listeners.filter(l => l !== listener);
+    };
+  }
+
+  notifyListeners() {
+    this.listeners.forEach(l => {
+      try { l(); } catch (e) {}
+    });
   }
 
   loadCustomDatasetsFromStorage() {
@@ -173,12 +187,13 @@ class DatasetService {
     } catch (err) {
       console.warn('Failed to save custom datasets to storage:', err);
     }
+    this.notifyListeners();
   }
 
   getAllDatasets() {
-    return [...this.builtinDatasets, ...this.customDatasets].map(d => {
+    return [...this.customDatasets].map(d => {
       const chunks = countDatasetChunks(d.content);
-      const source = d.isCustom ? (d.isPasted ? 'Pasted' : 'Uploaded') : 'Bundled';
+      const source = d.isPasted ? 'Pasted' : 'Uploaded';
       const farmIds = extractFarmIdsFromContent(d.content + ' ' + (d.farmId || ''));
       return {
         ...d,
@@ -233,7 +248,6 @@ class DatasetService {
       addedAt: new Date().toISOString(),
     };
 
-    // Replace if duplicate filename or name exists
     const existingIndex = this.customDatasets.findIndex(d => 
       d.fileName.toLowerCase() === fileName.toLowerCase() ||
       d.name.toLowerCase() === cleanName.toLowerCase()
@@ -262,6 +276,11 @@ class DatasetService {
     this.saveCustomDatasetsToStorage();
   }
 
+  removeAllDatasets() {
+    this.customDatasets = [];
+    this.saveCustomDatasetsToStorage();
+  }
+
   getDatasetSelectorOptions() {
     const all = this.getAllDatasets();
     const options = [
@@ -269,22 +288,13 @@ class DatasetService {
     ];
 
     all.forEach(d => {
-      let icon = '📊';
-      if (d.category === 'Remote Sensing') icon = '🛰️';
-      else if (d.category === 'Agronomic Knowledge') icon = '🌊';
-      else if (d.category === 'Agro-Meteorology') icon = '☀️';
-      else if (d.category === 'Telemetry Alerts') icon = '⚡';
-      else if (d.category === 'Agronomy') icon = '🌱';
-      else if (d.category === 'Decision Support') icon = '📋';
-      else if (d.isCustom) icon = '📁';
-
       options.push({
         id: d.id,
-        label: `${icon} ${d.name}`,
+        label: `📁 ${d.name}`,
         description: d.description,
-        category: d.category,
+        category: d.category || 'User Dataset',
         farmId: d.farmId,
-        isCustom: d.isCustom,
+        isCustom: true,
         chunkCount: d.chunkCount,
       });
     });
@@ -294,3 +304,4 @@ class DatasetService {
 }
 
 export const datasetService = new DatasetService();
+export default datasetService;

@@ -1,14 +1,25 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SIZES } from '../constants/theme';
 import { getRealFarms, getRealAlerts, getThresholdStatus } from '../services/datasetData';
+import datasetService from '../services/datasetService';
 
 export default function CropHealth({ theme, onNavigate, onOpenUploadModal, onSelectQuestion }) {
-  const realFarms = getRealFarms();
-  const realAlerts = getRealAlerts();
+  const [realFarms, setRealFarms] = useState([]);
+  const [realAlerts, setRealAlerts] = useState([]);
 
-  // Sort alerts by Critical first
+  const loadData = () => {
+    setRealFarms(getRealFarms());
+    setRealAlerts(getRealAlerts());
+  };
+
+  useEffect(() => {
+    loadData();
+    const unsub = datasetService.subscribe(loadData);
+    return () => unsub();
+  }, []);
+
   const sortedAlerts = [...realAlerts].sort((a, b) => (a.severity === 'Critical' ? -1 : 1));
   const topAlert = sortedAlerts.length > 0 ? sortedAlerts[0] : null;
 

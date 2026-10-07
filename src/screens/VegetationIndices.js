@@ -6,26 +6,33 @@ import { getRealFarms, getThresholdStatus } from '../services/datasetData';
 import datasetService from '../services/datasetService';
 import UploadDatasetModal from '../components/UploadDatasetModal';
 
-export default function VegetationIndices({ theme }) {
+export default function VegetationIndices({ theme, onOpenUploadModal }) {
   const [farms, setFarms] = useState([]);
-  const [thresholds, setThresholds] = useState({});
+  const [selectedFarmId, setSelectedFarmId] = useState('ALL');
   const [modalVisible, setModalVisible] = useState(false);
 
   const loadData = () => {
-    const data = getRealFarms();
-    setFarms(data.farms || []);
-    setThresholds(data.thresholds || {});
+    const realFarms = getRealFarms();
+    setFarms(realFarms);
   };
 
   useEffect(() => {
     loadData();
-    const unsubscribe = datasetService.subscribe(() => {
-      loadData();
-    });
-    return () => unsubscribe();
+    const unsub = datasetService.subscribe(loadData);
+    return () => unsub();
   }, []);
 
-  const ndviFarms = farms.filter(f => f.ndvi != null);
+  const handleOpenModal = () => {
+    if (onOpenUploadModal) {
+      onOpenUploadModal();
+    } else {
+      setModalVisible(true);
+    }
+  };
+
+  const ndviFarms = farms.filter(f => 
+    f.ndvi != null || (f.timeSeries && f.timeSeries.some(t => t.ndvi != null))
+  );
 
   if (ndviFarms.length === 0) {
     return (
@@ -40,10 +47,10 @@ export default function VegetationIndices({ theme }) {
           </Text>
           <TouchableOpacity
             style={[styles.actionBtn, { backgroundColor: theme.primary }]}
-            onPress={() => setModalVisible(true)}
+            onPress={handleOpenModal}
           >
             <Ionicons name="add-circle-outline" size={20} color="#FFF" />
-            <Text style={styles.actionBtnText}>Add NDVI Dataset</Text>
+            <Text style={styles.actionBtnText}>+ Add Dataset</Text>
           </TouchableOpacity>
         </View>
 
@@ -51,18 +58,47 @@ export default function VegetationIndices({ theme }) {
           visible={modalVisible}
           onClose={() => setModalVisible(false)}
           theme={theme}
-          onUploadSuccess={() => loadData()}
+          onUploadSuccess={loadData}
         />
       </View>
     );
   }
 
+  const displayedFarms = selectedFarmId === 'ALL' ? ndviFarms : ndviFarms.filter(f => f.id === selectedFarmId);
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-      <Text style={[styles.pageHeading, { color: theme.text }]}>Real Vegetation Index (NDVI) Readings</Text>
-      
-      {ndviFarms.map((farm) => {
-        const ndviStatus = getThresholdStatus(farm.ndvi, 'ndvi', thresholds);
+      {/* Farm Filter Pills if > 1 farm */}
+      {ndviFarms.length > 1 && (
+        <View style={styles.filterRow}>
+          <TouchableOpacity
+            style={[
+              styles.filterPill,
+              selectedFarmId === 'ALL' ? { backgroundColor: theme.primary } : { backgroundColor: theme.surface, borderColor: theme.border }
+            ]}
+            onPress={() => setSelectedFarmId('ALL')}
+          >
+            <Text style={[styles.filterText, selectedFarmId === 'ALL' ? { color: '#FFF' } : { color: theme.text }]}>All Farms ({ndviFarms.length})</Text>
+          </TouchableOpacity>
+
+          {ndviFarms.map(f => (
+            <TouchableOpacity
+              key={f.id}
+              style={[
+                styles.filterPill,
+                selectedFarmId === f.id ? { backgroundColor: theme.primary } : { backgroundColor: theme.surface, borderColor: theme.border }
+              ]}
+              onPress={() => setSelectedFarmId(f.id)}
+            >
+              <Text style={[styles.filterText, selectedFarmId === f.id ? { color: '#FFF' } : { color: theme.text }]}>{f.id}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+
+      {displayedFarms.map((farm) => {
+        const ndviStatus = farm.ndvi != null ? getThresholdStatus(farm.ndvi, 'ndvi') : null;
+        const validSeries = (farm.timeSeries || []).filter(t => t.ndvi != null);
 
         return (
           <View key={farm.id} style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
@@ -74,7 +110,7 @@ export default function VegetationIndices({ theme }) {
                 </Text>
               </View>
               <View style={styles.valueMeta}>
-                <Text style={[styles.indexValue, { color: theme.text }]}>{farm.ndvi}</Text>
+                <Text style={[styles.indexValue, { color: theme.text }]}>{farm.ndvi !== null ? farm.ndvi : 'N/A'}</Text>
                 {ndviStatus ? (
                   <Text style={[styles.statusBadge, { color: ndviStatus.color, backgroundColor: ndviStatus.color + '15' }]}>
                     {ndviStatus.label}
@@ -111,6 +147,28 @@ export default function VegetationIndices({ theme }) {
                 </View>
               ) : null}
             </View>
+
+            {/* Real Dated Points Chart */}
+            {validSeries.length > 1 && (
+              <View style={styles.chartBlock}>
+                <Text style={[styles.sectionTitle, { color: theme.text }]}>NDVI Time Series (Real Dated Points)</Text>
+                <View style={styles.barChartContainer}>
+                  {validSeries.map((item, idx) => {
+                    const val = item.ndvi || 0;
+                    const pct = Math.min(100, Math.max(10, val * 100));
+                    return (
+                      <View key={idx} style={styles.barCol}>
+                        <Text style={[styles.barValText, { color: theme.text }]}>{val}</Text>
+                        <View style={[styles.barTrack, { backgroundColor: theme.border }]}>
+                          <View style={[styles.barFill, { backgroundColor: theme.accent || '#06B6D4', height: `${pct}%` }]} />
+                        </View>
+                        <Text style={[styles.barDateText, { color: theme.textSecondary }]}>{item.date.slice(-5)}</Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              </View>
+            )}
           </View>
         );
       })}
@@ -119,7 +177,7 @@ export default function VegetationIndices({ theme }) {
         visible={modalVisible}
         onClose={() => setModalVisible(false)}
         theme={theme}
-        onUploadSuccess={() => loadData()}
+        onUploadSuccess={loadData}
       />
     </ScrollView>
   );
@@ -132,10 +190,21 @@ const styles = StyleSheet.create({
   content: {
     padding: SIZES.lg,
   },
-  pageHeading: {
-    fontSize: 18,
-    fontWeight: 'bold',
+  filterRow: {
+    flexDirection: 'row',
+    gap: SIZES.sm,
     marginBottom: SIZES.lg,
+    flexWrap: 'wrap',
+  },
+  filterPill: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  filterText: {
+    fontSize: 13,
+    fontWeight: 'bold',
   },
   emptyContainer: {
     flex: 1,
@@ -233,6 +302,47 @@ const styles = StyleSheet.create({
   detailValue: {
     fontSize: 15,
     fontWeight: 'bold',
+  },
+  chartBlock: {
+    marginTop: SIZES.lg,
+    paddingTop: SIZES.md,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.1)',
+  },
+  sectionTitle: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    marginBottom: SIZES.md,
+  },
+  barChartContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: SIZES.md,
+    height: 120,
+    paddingTop: 10,
+  },
+  barCol: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  barValText: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  barTrack: {
+    width: 24,
+    height: 80,
+    borderRadius: 4,
+    justifyContent: 'flex-end',
+    overflow: 'hidden',
+  },
+  barFill: {
+    width: '100%',
+    borderRadius: 4,
+  },
+  barDateText: {
+    fontSize: 10,
+    marginTop: 4,
   }
 });
-

@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Platform }
 import { Ionicons } from '@expo/vector-icons';
 import { SIZES } from '../constants/theme';
 import { datasetService } from '../services/datasetService';
+import { getDetectedFieldsString } from '../services/datasetData';
 
 export default function KnowledgeGroundingPane({ theme, onOpenUploadModal, onDatasetChanged }) {
   const [datasets, setDatasets] = useState([]);
@@ -13,11 +14,11 @@ export default function KnowledgeGroundingPane({ theme, onOpenUploadModal, onDat
 
   useEffect(() => {
     reloadDatasets();
+    const unsub = datasetService.subscribe(reloadDatasets);
+    return () => unsub();
   }, []);
 
   const handleDelete = (ds) => {
-    if (!ds.isCustom) return;
-    
     const confirmDelete = () => {
       datasetService.removeCustomDataset(ds.id);
       reloadDatasets();
@@ -69,31 +70,33 @@ export default function KnowledgeGroundingPane({ theme, onOpenUploadModal, onDat
                 <View style={styles.datasetRow}>
                   <View style={styles.flexRow}>
                     <Ionicons 
-                      name={ds.isCustom ? "document-text-outline" : "analytics-outline"} 
+                      name="document-text-outline" 
                       size={15} 
-                      color={ds.isCustom ? theme.accent : theme.primary} 
+                      color={theme.accent} 
                       style={{ marginRight: 6 }} 
                     />
                     <Text style={[styles.datasetName, { color: theme.text }]} numberOfLines={1}>
                       {ds.name}
                     </Text>
                   </View>
-                  <View style={[styles.syncedChip, { backgroundColor: ds.isCustom ? theme.accent + '20' : theme.primary + '20' }]}>
-                    <Text style={[styles.syncedChipText, { color: ds.isCustom ? theme.accent : theme.primary }]}>
+                  <View style={[styles.syncedChip, { backgroundColor: theme.accent + '20' }]}>
+                    <Text style={[styles.syncedChipText, { color: theme.accent }]}>
                       {ds.source}
                     </Text>
                   </View>
                 </View>
 
+                <Text style={[styles.detectedText, { color: theme.primary }]} numberOfLines={2}>
+                  {getDetectedFieldsString(ds)}
+                </Text>
+
                 <View style={styles.metaRow}>
                   <Text style={[styles.datasetMetaText, { color: theme.textSecondary }]}>
                     {ds.chunkCount} {ds.chunkCount === 1 ? 'Chunk' : 'Chunks'} {ds.farmId ? `• ${ds.farmId}` : ''}
                   </Text>
-                  {ds.isCustom && (
-                    <TouchableOpacity onPress={() => handleDelete(ds)} style={{ paddingLeft: 6 }}>
-                      <Ionicons name="trash-outline" size={14} color="#EF4444" />
-                    </TouchableOpacity>
-                  )}
+                  <TouchableOpacity onPress={() => handleDelete(ds)} style={{ paddingLeft: 6 }}>
+                    <Ionicons name="trash-outline" size={14} color="#EF4444" />
+                  </TouchableOpacity>
                 </View>
               </View>
             ))
@@ -205,6 +208,11 @@ const styles = StyleSheet.create({
   },
   datasetMetaText: {
     fontSize: 11,
+  },
+  detectedText: {
+    fontSize: 10,
+    fontWeight: '600',
+    marginBottom: 4,
   },
   uploadBtn: {
     flexDirection: 'row',
