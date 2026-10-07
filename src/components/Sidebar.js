@@ -11,6 +11,7 @@ const MENU_ITEMS = [
   { id: '4', icon: 'partly-sunny', title: 'Weather Insights' },
   { id: '5', icon: 'earth', title: 'Soil Analysis' },
   { id: '6', icon: 'stats-chart', title: 'Vegetation Indices' },
+  { id: '6.5', icon: 'pulse', title: 'Agent Monitor' },
   { id: '7', icon: 'bookmark', title: 'Saved' },
 ];
 
@@ -25,8 +26,8 @@ export default function Sidebar({ theme, isDesktop, closeSidebar, currentScreen,
       !isDesktop && styles.mobileContainer
     ]}>
       <View style={styles.header}>
-        <View style={{ marginRight: SIZES.md }}>
-          <DCLogo size={36} theme={theme} />
+        <View style={{ marginRight: SIZES.sm }}>
+          <DCLogo size={32} theme={theme} />
         </View>
         <Text style={[styles.logoText, { color: theme.text }]}>DigiCrop AI</Text>
         
@@ -55,7 +56,7 @@ export default function Sidebar({ theme, isDesktop, closeSidebar, currentScreen,
             >
               <Ionicons 
                 name={item.icon} 
-                size={22} 
+                size={20} 
                 color={isActive ? theme.primary : theme.textSecondary} 
               />
               <Text style={[
@@ -83,7 +84,7 @@ export default function Sidebar({ theme, isDesktop, closeSidebar, currentScreen,
         >
           <Ionicons 
             name="settings-outline" 
-            size={22} 
+            size={20} 
             color={currentScreen === 'Settings' ? theme.primary : theme.textSecondary} 
           />
           <Text style={[
@@ -121,19 +122,19 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: SIZES.xl,
-    paddingBottom: SIZES.lg,
+    paddingHorizontal: SIZES.md,
+    paddingVertical: SIZES.md,
   },
   logoIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
+    width: 32,
+    height: 32,
+    borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: SIZES.md,
+    marginRight: SIZES.sm,
   },
   logoText: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: 'bold',
     flex: 1,
   },
@@ -147,12 +148,14 @@ const styles = StyleSheet.create({
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: SIZES.md,
+    paddingHorizontal: SIZES.md,
+    paddingVertical: 10,
     borderRadius: SIZES.radius,
-    marginBottom: SIZES.xs,
+    marginBottom: 4,
+    height: 42,
   },
   menuText: {
-    fontSize: 15,
+    fontSize: 14,
     marginLeft: SIZES.md,
     fontWeight: '500',
   },
@@ -160,8 +163,8 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   footer: {
-    padding: SIZES.md,
-    paddingBottom: SIZES.xl,
+    paddingHorizontal: SIZES.md,
+    paddingVertical: SIZES.md,
     borderTopWidth: 1,
     borderTopColor: 'transparent',
   }

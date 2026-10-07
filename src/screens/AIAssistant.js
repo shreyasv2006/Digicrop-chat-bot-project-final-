@@ -63,6 +63,8 @@ export default function AIAssistant({ theme, isDesktop, sessionResetTrigger }) {
           text: response.answer,
           sources: response.sources,
           modelUsed: response.modelUsed,
+          usage: response.usage,
+          trace: response.trace,
           sender: 'bot',
         }
       ]);

@@ -17,6 +17,7 @@ import CropHealth from './src/screens/CropHealth';
 import WeatherInsights from './src/screens/WeatherInsights';
 import SoilAnalysis from './src/screens/SoilAnalysis';
 import VegetationIndices from './src/screens/VegetationIndices';
+import AgentMonitor from './src/screens/AgentMonitor';
 import SavedConversations from './src/screens/SavedConversations';
 import Settings from './src/screens/Settings';
 
@@ -73,6 +74,8 @@ export default function App() {
         return <SoilAnalysis theme={theme} onOpenUploadModal={openUploadModal} />;
       case 'Vegetation Indices':
         return <VegetationIndices theme={theme} onOpenUploadModal={openUploadModal} />;
+      case 'Agent Monitor':
+        return <AgentMonitor theme={theme} />;
       case 'Saved':
         return <SavedConversations theme={theme} onNavigate={setCurrentScreen} />;
       case 'Settings':

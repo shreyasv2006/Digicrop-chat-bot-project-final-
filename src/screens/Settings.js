@@ -142,8 +142,14 @@ export default function Settings({ theme, isDarkMode, toggleTheme, onOpenUploadM
     }
   };
 
-  let totalChunks = 0;
-  datasets.forEach(d => { totalChunks += (d.chunkCount || 1); });
+  const handleClearMonitor = () => {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.removeItem('digicrop_agent_monitor_history');
+        if (Platform.OS === 'web') alert('Agent monitor data cleared!');
+      }
+    } catch (e) {}
+  };
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -261,6 +267,10 @@ export default function Settings({ theme, isDarkMode, toggleTheme, onOpenUploadM
         <View style={styles.privacyBtnRow}>
           <TouchableOpacity style={[styles.privacyBtn, { backgroundColor: theme.border }]} onPress={handleClearSaved}>
             <Text style={[styles.privacyBtnText, { color: theme.text }]}>Clear Saved Items</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={[styles.privacyBtn, { backgroundColor: theme.border }]} onPress={handleClearMonitor}>
+            <Text style={[styles.privacyBtnText, { color: theme.text }]}>Clear Monitor Data</Text>
           </TouchableOpacity>
 
           <TouchableOpacity style={[styles.privacyBtn, { backgroundColor: '#EF444420', borderColor: '#EF4444' }]} onPress={handleResetApp}>

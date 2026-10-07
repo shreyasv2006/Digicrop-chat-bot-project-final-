@@ -277,42 +277,73 @@ module.exports = async function handler(req, res) {
       return res.status(400).json({ error: 'Message string is required.' });
     }
 
+    const startTime = Date.now();
+    const trace = [];
+
     const groqKey = process.env.GROQ_API_KEY ? process.env.GROQ_API_KEY.trim() : null;
     const geminiKey = process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.trim() : null;
     const groqModel = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
 
+    const tIntent = Date.now();
     const { mode, activeFarmId } = classifyUserIntent(message, selectedDatasetId, conversationHistory);
+    trace.push({
+      agent: 'Intent Classifier',
+      action: 'Classify User Intent',
+      status: 'Success',
+      durationMs: Date.now() - tIntent,
+      detail: `mode: ${mode}`,
+    });
+
+    // Helper for non-model response usage
+    const makeNonModelUsage = (modelName = 'None') => ({
+      inputTokens: 0,
+      outputTokens: 0,
+      thinkingTokens: 0,
+      totalTokens: 0,
+      model: modelName,
+      latencyMs: Date.now() - startTime,
+      calledModel: false,
+    });
 
     // MODE 1: GREETING & SMALL TALK
     if (mode === 'GREETING_SMALLTALK') {
+      trace.push({ agent: 'Guardrail', action: 'Intent Short-Circuit', status: 'Handled', durationMs: Date.now() - startTime, detail: 'Handled GREETING_SMALLTALK' });
       return res.status(200).json({
         geminiConnected: true,
         answer: "Hello! 👋 I'm DigiCrop AI, your agricultural assistant.\n\nHow can I help you today? Ask me any agricultural question or upload a dataset to analyze your farm metrics.",
         sources: ['DigiCrop Guidance'],
         modelUsed: groqKey ? groqModel : 'Gemini Flash',
         mode,
+        usage: makeNonModelUsage(),
+        trace,
       });
     }
 
     // MODE 2: VAGUE & UNDERSPECIFIED
     if (mode === 'VAGUE_UNDERSPECIFIED') {
+      trace.push({ agent: 'Guardrail', action: 'Intent Short-Circuit', status: 'Handled', durationMs: Date.now() - startTime, detail: 'Handled VAGUE_UNDERSPECIFIED' });
       return res.status(200).json({
         geminiConnected: true,
         answer: "Which farm or dataset would you like to inspect? Upload or select a dataset to inspect NDVI, soil moisture, weather, or alerts.",
         sources: ['DigiCrop Guidance'],
         modelUsed: groqKey ? groqModel : 'Gemini Flash',
         mode,
+        usage: makeNonModelUsage(),
+        trace,
       });
     }
 
     // MODE 3: OFF-TOPIC
     if (mode === 'OFF_TOPIC') {
+      trace.push({ agent: 'Guardrail', action: 'Intent Short-Circuit', status: 'Handled', durationMs: Date.now() - startTime, detail: 'Handled OFF_TOPIC' });
       return res.status(200).json({
         geminiConnected: true,
         answer: "I specialize in farming, crops, and agricultural telemetry. How can I help with your crops or farm datasets today?",
         sources: ['DigiCrop Guidance'],
         modelUsed: groqKey ? groqModel : 'Gemini Flash',
         mode,
+        usage: makeNonModelUsage(),
+        trace,
       });
     }
 
@@ -331,13 +362,14 @@ module.exports = async function handler(req, res) {
             crop: cd.crop || null,
             description: cd.description || 'Custom uploaded dataset.',
             content: cd.content,
- raw: cd.content,
+            raw: cd.content,
           });
         }
       });
     }
 
-    // Unknown Farm Check (e.g., F999)
+    // Unknown Farm Check
+    const tGuard = Date.now();
     const farmIdMatch = message.toLowerCase().match(/f[0-9]{3}|f00[0-9]/i);
     const targetFarmId = (farmIdMatch ? farmIdMatch[0] : activeFarmId)?.toUpperCase();
 
@@ -350,18 +382,30 @@ module.exports = async function handler(req, res) {
       );
 
       if (!farmDs) {
+        trace.push({ agent: 'Guardrail', action: 'Check Farm ID', status: 'Triggered', durationMs: Date.now() - tGuard, detail: `Unindexed farm: ${targetFarmId}` });
         return res.status(200).json({
           geminiConnected: true,
           answer: `I don't have dataset or telemetry information for farm **${targetFarmId}**. Please select or upload the ${targetFarmId} dataset to inspect telemetry.`,
           sources: ['System Guardrail'],
           modelUsed: groqKey ? groqModel : 'Gemini Flash',
           mode: 'FARM_DATA_QUESTION',
+          usage: makeNonModelUsage(),
+          trace,
         });
       }
     }
+    trace.push({ agent: 'Guardrail', action: 'Check Farm ID', status: 'Passed', durationMs: Date.now() - tGuard, detail: targetFarmId ? `Validated farm: ${targetFarmId}` : 'No farm ID restriction' });
 
     // Detect target datasets & chunk content
+    const tRet = Date.now();
     const { targetDatasets, datasetNames } = detectDatasetIntent(message, allDatasets, selectedDatasetId, conversationHistory);
+    trace.push({
+      agent: 'Retriever',
+      action: 'Search Datasets & Chunking',
+      status: 'Success',
+      durationMs: Date.now() - tRet,
+      detail: `${targetDatasets.length} dataset(s) matched (${datasetNames.join(', ') || 'None'})`,
+    });
 
     let contextText = '';
     if (mode === 'FARM_DATA_QUESTION' && targetDatasets.length > 0) {
@@ -380,8 +424,9 @@ module.exports = async function handler(req, res) {
 
     const currentPromptText = contextText ? `${contextText}USER QUESTION: ${message}` : message;
 
-    // 1. PRIMARY INFERENCE: GROQ API (If GROQ_API_KEY is present)
+    // 1. PRIMARY INFERENCE: GROQ API
     if (groqKey) {
+      const tGen = Date.now();
       try {
         const groqMessages = [
           { role: 'system', content: SYSTEM_PROMPT }
@@ -425,6 +470,25 @@ module.exports = async function handler(req, res) {
               ? datasetNames
               : ['Groq Agricultural AI'];
 
+            const gUsage = groqData.usage || {};
+            const usage = {
+              inputTokens: gUsage.prompt_tokens || 0,
+              outputTokens: gUsage.completion_tokens || 0,
+              thinkingTokens: 0,
+              totalTokens: gUsage.total_tokens || ((gUsage.prompt_tokens || 0) + (gUsage.completion_tokens || 0)),
+              model: groqModel,
+              latencyMs: Date.now() - startTime,
+              calledModel: true,
+            };
+
+            trace.push({
+              agent: 'Model Generator',
+              action: 'Generate Groq Response',
+              status: 'Success',
+              durationMs: Date.now() - tGen,
+              detail: `Model: ${groqModel} (${usage.totalTokens} tokens)`,
+            });
+
             return res.status(200).json({
               geminiConnected: true,
               answer: groqAnswer,
@@ -432,16 +496,20 @@ module.exports = async function handler(req, res) {
               modelUsed: `Groq (${groqModel})`,
               mode,
               targetDatasets: targetDatasets.map(d => ({ name: d.name, fileName: d.fileName })),
+              usage,
+              trace,
             });
           }
         }
       } catch (err) {
         console.warn('[Groq API Call Failed]:', err.message);
+        trace.push({ agent: 'Model Generator', action: 'Groq API Call', status: 'Failed', durationMs: Date.now() - tGen, detail: err.message });
       }
     }
 
     // 2. SECONDARY INFERENCE: GEMINI API FALLBACK
     if (geminiKey) {
+      const tGen = Date.now();
       const geminiModel = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
       const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${geminiKey}`;
       
@@ -482,6 +550,25 @@ module.exports = async function handler(req, res) {
               ? datasetNames
               : ['Gemini Agricultural Knowledge'];
 
+            const meta = geminiData.usageMetadata || {};
+            const usage = {
+              inputTokens: meta.promptTokenCount || 0,
+              outputTokens: meta.candidatesTokenCount || 0,
+              thinkingTokens: meta.thoughtsTokenCount || 0,
+              totalTokens: meta.totalTokenCount || ((meta.promptTokenCount || 0) + (meta.candidatesTokenCount || 0)),
+              model: geminiModel,
+              latencyMs: Date.now() - startTime,
+              calledModel: true,
+            };
+
+            trace.push({
+              agent: 'Model Generator',
+              action: 'Generate Gemini Response',
+              status: 'Success',
+              durationMs: Date.now() - tGen,
+              detail: `Model: ${geminiModel} (${usage.totalTokens} tokens)`,
+            });
+
             return res.status(200).json({
               geminiConnected: true,
               answer: geminiAnswer,
@@ -489,31 +576,41 @@ module.exports = async function handler(req, res) {
               modelUsed: geminiModel,
               mode,
               targetDatasets: targetDatasets.map(d => ({ name: d.name, fileName: d.fileName })),
+              usage,
+              trace,
             });
           }
         }
       } catch (err) {
         console.warn('[Gemini API Call Failed]:', err.message);
+        trace.push({ agent: 'Model Generator', action: 'Gemini API Call', status: 'Failed', durationMs: Date.now() - tGen, detail: err.message });
       }
     }
 
     // 3. TERTIARY FALLBACK: GROUNDED DATASET RAG RESPONSE
+    const tFall = Date.now();
     if (mode === 'FARM_DATA_QUESTION' && targetDatasets.length > 0) {
       const mainDs = targetDatasets[0];
+      trace.push({ agent: 'Fallback', action: 'Grounded RAG Engine Fallback', status: 'Fallback Used', durationMs: Date.now() - tFall, detail: 'Used local dataset text fallback' });
       return res.status(200).json({
         geminiConnected: true,
         answer: `*Note: Here is the observed telemetry from your dataset:*\n\n**${mainDs.name} Telemetry:**\n\n${mainDs.content}`,
         sources: datasetNames,
         modelUsed: 'Grounded Dataset Engine',
         mode,
+        usage: makeNonModelUsage('Grounded Dataset Engine'),
+        trace,
       });
     }
 
+    trace.push({ agent: 'Fallback', action: 'Service Unavailable Fallback', status: 'Fallback Used', durationMs: Date.now() - tFall, detail: 'API quota busy' });
     return res.status(200).json({
       geminiConnected: false,
       answer: '⚠️ **AI Service Busy**: Please wait a moment and try again.',
       sources: ['API Diagnostic'],
       modelUsed: 'DigiCrop AI',
+      usage: makeNonModelUsage('DigiCrop AI'),
+      trace,
     });
 
   } catch (error) {

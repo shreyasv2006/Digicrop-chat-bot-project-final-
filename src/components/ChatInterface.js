@@ -190,7 +190,7 @@ export default function ChatInterface({
                           style={styles.saveBtn}
                           onPress={() => {
                             saveConversationToStorage({
-                              title: messages[idx - 1] ? messages[idx - 1].text : 'Saved Answer',
+                              title: messages[index - 1] ? messages[index - 1].text : 'Saved Answer',
                               desc: msg.text,
                             });
                             if (Platform.OS === 'web') alert('Answer saved! View it in the Saved tab.');
@@ -201,6 +201,15 @@ export default function ChatInterface({
                         </TouchableOpacity>
                       </View>
                     )}
+
+                    {/* Token Usage Muted Line */}
+                    <View style={styles.tokenLineContainer}>
+                      <Text style={[styles.tokenLineText, { color: theme.textSecondary }]}>
+                        {msg.usage && msg.usage.calledModel && msg.usage.totalTokens > 0
+                          ? `In ${msg.usage.inputTokens} · Out ${msg.usage.outputTokens}${msg.usage.thinkingTokens ? ` · Think ${msg.usage.thinkingTokens}` : ''} · Total ${msg.usage.totalTokens} tokens · ${((msg.usage.latencyMs || 300) / 1000).toFixed(1)}s`
+                          : 'No model call · 0 tokens'}
+                      </Text>
+                    </View>
                   </View>
                 )}
               </View>
@@ -553,5 +562,18 @@ const styles = StyleSheet.create({
   },
   statusFooterText: {
     fontSize: 11,
+  },
+  saveBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 4,
+  },
+  tokenLineContainer: {
+    marginTop: 6,
+    paddingTop: 4,
+  },
+  tokenLineText: {
+    fontSize: 11,
+    lineHeight: 14,
   }
 });
