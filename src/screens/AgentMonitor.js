@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform, Alert }
 import { Ionicons } from '@expo/vector-icons';
 import { SIZES } from '../constants/theme';
 import { getMonitorHistory, clearMonitorHistory } from '../services/apiService';
+import { confirmDialog, showToast } from '../services/dialogService';
 
 export default function AgentMonitor({ theme }) {
   const [history, setHistory] = useState([]);
@@ -19,21 +20,20 @@ export default function AgentMonitor({ theme }) {
     return () => clearInterval(interval);
   }, []);
 
-  const handleClear = () => {
-    const confirmClear = () => {
+  const handleClear = async () => {
+    const ok = await confirmDialog({
+      title: 'Clear Monitor Data',
+      message: 'Clear all agent monitor log history?',
+      confirmText: 'Clear Logs',
+      isDestructive: true,
+    });
+    if (ok) {
       clearMonitorHistory();
       setHistory([]);
-      if (Platform.OS === 'web') alert('Agent monitor data cleared!');
-    };
-    if (Platform.OS === 'web') {
-      if (window.confirm('Clear all agent monitor log history?')) confirmClear();
-    } else {
-      Alert.alert('Clear Monitor Data', 'Are you sure you want to clear all monitor data?', [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Clear', style: 'destructive', onPress: confirmClear }
-      ]);
+      showToast('Agent monitor data cleared!', 'success');
     }
   };
+
 
   const handleExport = () => {
     if (Platform.OS === 'web') {

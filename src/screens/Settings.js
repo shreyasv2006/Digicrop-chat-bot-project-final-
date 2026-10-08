@@ -5,6 +5,7 @@ import { SIZES } from '../constants/theme';
 import datasetService from '../services/datasetService';
 import { getDetectedFieldsString, clearAllSavedConversations } from '../services/datasetData';
 import { clearAllChats } from '../services/chatStorage';
+import { confirmDialog, alertDialog, promptDialog, showToast } from '../services/dialogService';
 
 const PROFILE_STORAGE_KEY = 'digicrop_user_profile';
 const CHAT_PREFS_KEY = 'digicrop_chat_preferences';
@@ -78,99 +79,115 @@ export default function Settings({ theme, isDarkMode, toggleTheme, onOpenUploadM
     saveChatPreferencesToStorage(updated);
   };
 
-  const handleRenameDataset = (ds) => {
-    const newName = Platform.OS === 'web' ? window.prompt('Enter new dataset name:', ds.name) : null;
+  const handleRenameDataset = async (ds) => {
+    const newName = await promptDialog({
+      title: 'Rename Dataset',
+      message: `Enter new name for dataset "${ds.name}":`,
+      defaultValue: ds.name,
+      confirmText: 'Rename',
+    });
     if (newName && newName.trim()) {
       datasetService.renameCustomDataset(ds.id, newName.trim());
       reloadData();
+      showToast(`Renamed to "${newName.trim()}"`, 'success');
     }
   };
 
-  const handleDeleteDataset = (ds) => {
-    const confirmDelete = () => {
+  const handleDeleteDataset = async (ds) => {
+    const ok = await confirmDialog({
+      title: 'Delete Dataset',
+      message: `Are you sure you want to delete dataset "${ds.name}"?`,
+      confirmText: 'Delete',
+      isDestructive: true,
+    });
+    if (ok) {
       datasetService.removeCustomDataset(ds.id);
       reloadData();
-    };
-
-    if (Platform.OS === 'web') {
-      if (window.confirm(`Delete dataset "${ds.name}"?`)) confirmDelete();
-    } else {
-      Alert.alert('Delete Dataset', `Are you sure you want to delete "${ds.name}"?`, [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete', style: 'destructive', onPress: confirmDelete }
-      ]);
+      showToast(`Deleted "${ds.name}"`, 'info');
     }
   };
 
-  const handleDeleteAllDatasets = () => {
-    const confirmAll = () => {
+  const handleDeleteAllDatasets = async () => {
+    const ok = await confirmDialog({
+      title: 'Delete All Datasets',
+      message: 'Are you sure you want to remove ALL loaded datasets? This action cannot be undone.',
+      confirmText: 'Delete All',
+      isDestructive: true,
+    });
+    if (ok) {
       datasetService.removeAllDatasets();
       reloadData();
-    };
-
-    if (Platform.OS === 'web') {
-      if (window.confirm('Delete ALL datasets? This action cannot be undone.')) confirmAll();
-    } else {
-      Alert.alert('Delete All Datasets', 'Are you sure you want to remove ALL loaded datasets?', [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete All', style: 'destructive', onPress: confirmAll }
-      ]);
+      showToast('All datasets removed', 'info');
     }
   };
 
-  const handleClearSaved = () => {
-    const doClear = () => {
+  const handleClearSaved = async () => {
+    const ok = await confirmDialog({
+      title: 'Clear Saved Items',
+      message: 'Are you sure you want to clear all saved conversations and answers?',
+      confirmText: 'Clear All',
+      isDestructive: true,
+    });
+    if (ok) {
       clearAllSavedConversations();
-      if (Platform.OS === 'web') alert('Saved items cleared!');
-    };
-    if (Platform.OS === 'web') {
-      if (window.confirm('Clear all saved conversations?')) doClear();
+      showToast('Saved items cleared!', 'success');
     }
   };
 
-  const handleClearChatHistory = () => {
+  const handleClearChatHistory = async () => {
     const activeName = activeProfile?.name || profile?.displayName || 'User';
     const confirmMsg = `Clear all chats for profile '${activeName}'? This action cannot be undone.`;
 
-    const doClear = async () => {
+    const ok = await confirmDialog({
+      title: 'Clear Profile Chat History',
+      message: confirmMsg,
+      confirmText: 'Clear Chats',
+      isDestructive: true,
+    });
+
+    if (ok) {
       await clearAllChats();
       if (onChatsCleared) onChatsCleared();
-      if (Platform.OS === 'web') alert(`Chat history for profile '${activeName}' cleared!`);
-    };
-
-    if (Platform.OS === 'web') {
-      if (window.confirm(confirmMsg)) doClear();
-    } else {
-      Alert.alert('Clear Profile Chat History', confirmMsg, [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Clear', style: 'destructive', onPress: doClear }
-      ]);
+      showToast(`Chat history for profile '${activeName}' cleared!`, 'success');
     }
   };
 
-  const handleResetApp = () => {
-    const doReset = () => {
+  const handleResetApp = async () => {
+    const ok = await confirmDialog({
+      title: 'Reset DigiCrop AI',
+      message: 'Reset DigiCrop AI app and remove all local data? This will clear all chats, datasets, profiles, and settings.',
+      confirmText: 'Reset App',
+      isDestructive: true,
+    });
+
+    if (ok) {
       if (typeof window !== 'undefined' && window.localStorage) {
         window.localStorage.clear();
       }
       datasetService.removeAllDatasets();
       if (onResetApp) onResetApp();
       if (Platform.OS === 'web') window.location.reload();
-    };
-
-    if (Platform.OS === 'web') {
-      if (window.confirm('Reset DigiCrop AI app and remove all local data?')) doReset();
     }
   };
 
-  const handleClearMonitor = () => {
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        window.localStorage.removeItem('digicrop_agent_monitor_history');
-        if (Platform.OS === 'web') alert('Agent monitor data cleared!');
-      }
-    } catch (e) {}
+  const handleClearMonitor = async () => {
+    const ok = await confirmDialog({
+      title: 'Clear Monitor Data',
+      message: 'Clear all agent monitor trace and latency logs?',
+      confirmText: 'Clear Logs',
+      isDestructive: true,
+    });
+
+    if (ok) {
+      try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+          window.localStorage.removeItem('digicrop_agent_monitor_history');
+          showToast('Agent monitor data cleared!', 'success');
+        }
+      } catch (e) {}
+    }
   };
+
 
   const safeDatasets = datasets || [];
   const totalChunks = safeDatasets.reduce((acc, d) => acc + (d?.chunkCount || 1), 0);

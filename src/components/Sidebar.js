@@ -16,6 +16,7 @@ import {
   getSectionCollapseState,
   setSectionCollapseState,
 } from '../services/chatStorage';
+import { confirmDialog, alertDialog, showToast } from '../services/dialogService';
 
 const NAV_ITEMS = [
   { id: '1', icon: 'grid-outline', title: 'Dashboard' },
@@ -207,21 +208,17 @@ export default function Sidebar({
     setEditingChatId(null);
   };
 
-  const handleConfirmDelete = (chat) => {
+  const handleConfirmDelete = async (chat) => {
     setMenuOpenChatId(null);
-    const doDelete = () => {
-      if (onDeleteChat) onDeleteChat(chat.id);
-    };
-
-    if (Platform.OS === 'web') {
-      if (window.confirm(`Delete conversation "${chat.title}"?`)) {
-        doDelete();
-      }
-    } else {
-      Alert.alert('Delete Chat', `Are you sure you want to delete "${chat.title}"?`, [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete', style: 'destructive', onPress: doDelete },
-      ]);
+    const ok = await confirmDialog({
+      title: 'Delete Chat',
+      message: `Delete conversation "${chat.title}"?`,
+      confirmText: 'Delete',
+      isDestructive: true,
+    });
+    if (ok && onDeleteChat) {
+      onDeleteChat(chat.id);
+      showToast('Chat deleted', 'info');
     }
   };
 
@@ -231,6 +228,7 @@ export default function Sidebar({
       setNewProfileName('');
       setIsAddingProfile(false);
       setProfileMenuOpen(false);
+      showToast('Profile created', 'success');
     }
   };
 
@@ -240,38 +238,33 @@ export default function Sidebar({
       setRenameProfileInput('');
       setIsRenamingProfile(false);
       setProfileMenuOpen(false);
+      showToast('Profile renamed', 'success');
     }
   };
 
-  const handleDeleteProfileConfirm = () => {
+  const handleDeleteProfileConfirm = async () => {
     if (profiles.length <= 1) {
-      alert('Cannot delete the only remaining profile.');
+      await alertDialog({
+        title: 'Delete Profile',
+        message: 'Cannot delete the only remaining profile.',
+      });
       return;
     }
-    const doDelete = () => {
+
+    const ok = await confirmDialog({
+      title: 'Delete Profile',
+      message: `Delete profile "${displayName}"? All chats in this profile will be permanently deleted.`,
+      confirmText: 'Delete Profile',
+      isDestructive: true,
+    });
+
+    if (ok) {
       if (onDeleteProfile) onDeleteProfile(activeProfileId);
       setProfileMenuOpen(false);
-    };
-
-    if (Platform.OS === 'web') {
-      if (
-        window.confirm(
-          `Delete profile "${displayName}"? All chats in this profile will be permanently deleted.`
-        )
-      ) {
-        doDelete();
-      }
-    } else {
-      Alert.alert(
-        'Delete Profile',
-        `Are you sure you want to delete profile "${displayName}" and all its chats?`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Delete', style: 'destructive', onPress: doDelete },
-        ]
-      );
+      showToast('Profile deleted', 'info');
     }
   };
+
 
   const sidebarWidth = isCollapsed ? 64 : 280;
 
@@ -439,29 +432,55 @@ export default function Sidebar({
       {/* ---------------------------------------------------- */}
       {/* ZONE A: TOP (Fixed flexShrink: 0, does not scroll) */}
       {/* ---------------------------------------------------- */}
-      <View style={styles.zoneA}>
-        {/* Row 1: DC Logo + DigiCrop AI + Search + Collapse Toggle */}
-        <View style={[styles.topRow, isCollapsed && styles.topRowCollapsed]}>
-          <TouchableOpacity
-            style={styles.logoRow}
-            onPress={() => {
-              onSelectScreen('AI Assistant');
-              if (!isDesktop && closeSidebar) closeSidebar();
-            }}
-            activeOpacity={0.8}
-          >
-            <View style={styles.iconCol20}>
+      <View style={[styles.zoneA, isCollapsed && styles.zoneACollapsed]}>
+        {/* Row 1: DC Logo (+ DigiCrop AI) + Search Button */}
+        {isCollapsed ? (
+          <View style={styles.railTopCol}>
+            {/* Centered DC Logo Mark */}
+            <TouchableOpacity
+              style={styles.railLogoBtn}
+              onPress={() => {
+                onSelectScreen('AI Assistant');
+                if (!isDesktop && closeSidebar) closeSidebar();
+              }}
+              title="DigiCrop AI"
+              activeOpacity={0.8}
+            >
               <DCLogo size={24} theme={theme} />
-            </View>
-            {!isCollapsed && (
+            </TouchableOpacity>
+
+            {/* Centered Search Button */}
+            <TouchableOpacity
+              style={styles.railIconBtn}
+              onPress={() => {
+                onToggleCollapse?.();
+                setTimeout(() => searchInputRef.current?.focus(), 250);
+              }}
+              title="Search chats (Ctrl+K)"
+              activeOpacity={0.7}
+            >
+              <Feather name="search" size={18} color={theme.textSecondary} />
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={styles.topRow}>
+            <TouchableOpacity
+              style={styles.logoRow}
+              onPress={() => {
+                onSelectScreen('AI Assistant');
+                if (!isDesktop && closeSidebar) closeSidebar();
+              }}
+              activeOpacity={0.8}
+            >
+              <View style={styles.iconCol20}>
+                <DCLogo size={24} theme={theme} />
+              </View>
               <Text style={[styles.logoText, { color: theme.text }]} numberOfLines={1}>
                 DigiCrop <Text style={{ color: theme.primary }}>AI</Text>
               </Text>
-            )}
-          </TouchableOpacity>
+            </TouchableOpacity>
 
-          <View style={styles.headerControlsRight}>
-            {!isCollapsed && (
+            <View style={styles.headerControlsRight}>
               <TouchableOpacity
                 style={styles.headerIconBtn}
                 onPress={() => {
@@ -471,27 +490,16 @@ export default function Sidebar({
               >
                 <Feather name="search" size={16} color={theme.textSecondary} />
               </TouchableOpacity>
-            )}
 
-            {isDesktop ? (
-              <TouchableOpacity
-                style={styles.headerIconBtn}
-                onPress={onToggleCollapse}
-                title={isCollapsed ? 'Expand sidebar (Ctrl+B)' : 'Collapse sidebar (Ctrl+B)'}
-              >
-                <Feather
-                  name={isCollapsed ? 'sidebar' : 'sidebar'}
-                  size={16}
-                  color={theme.textSecondary}
-                />
-              </TouchableOpacity>
-            ) : (
-              <TouchableOpacity onPress={closeSidebar} style={styles.headerIconBtn}>
-                <Ionicons name="close" size={20} color={theme.text} />
-              </TouchableOpacity>
-            )}
+              {!isDesktop && (
+                <TouchableOpacity onPress={closeSidebar} style={styles.headerIconBtn}>
+                  <Ionicons name="close" size={20} color={theme.text} />
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
-        </View>
+        )}
+
 
         {/* Action Buttons: "+ New chat" & "Add Dataset" */}
         <View style={[styles.actionButtons, isCollapsed && styles.actionButtonsCollapsed]}>
@@ -911,63 +919,90 @@ export default function Sidebar({
           </View>
         )}
 
-        {/* Profile Row Trigger */}
-        <View style={styles.zoneCFooterRow}>
-          <TouchableOpacity
-            style={[
-              styles.profileRow,
-              isCollapsed && styles.profileRowCollapsed,
-            ]}
-            onPress={() => {
-              if (isCollapsed) {
+        {/* Bottom footer items */}
+        {isCollapsed ? (
+          <View style={styles.railBottomCol}>
+            {/* Gear Button on Top */}
+            <TouchableOpacity
+              style={styles.railGearBtn}
+              onPress={() => {
                 onSelectScreen('Settings');
                 if (!isDesktop && closeSidebar) closeSidebar();
-              } else {
-                setProfileMenuOpen(!profileMenuOpen);
-              }
-            }}
-            title={`Profile switcher - ${displayName}`}
-          >
-            <View
-              style={[
-                styles.avatarBox,
-                { backgroundColor: theme.primary + '25', borderColor: theme.primary + '50' },
-              ]}
+              }}
+              title="Settings"
+              activeOpacity={0.7}
             >
-              <Text style={[styles.avatarText, { color: theme.primary }]}>{initials}</Text>
-            </View>
+              <Feather name="settings" size={18} color={theme.textSecondary} />
+            </TouchableOpacity>
 
-            {!isCollapsed && (
+            {/* Avatar Button Below */}
+            <TouchableOpacity
+              style={styles.railAvatarBtn}
+              onPress={() => {
+                onSelectScreen('Settings');
+                if (!isDesktop && closeSidebar) closeSidebar();
+              }}
+              title={`Profile: ${displayName} (Click for Settings)`}
+              activeOpacity={0.7}
+            >
+              <View
+                style={[
+                  styles.avatarBox,
+                  { backgroundColor: theme.primary + '25', borderColor: theme.primary + '50' },
+                ]}
+              >
+                <Text style={[styles.avatarText, { color: theme.primary }]}>{initials}</Text>
+              </View>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={styles.zoneCFooterRow}>
+            <TouchableOpacity
+              style={styles.profileRow}
+              onPress={() => setProfileMenuOpen(!profileMenuOpen)}
+              title={`Profile switcher - ${displayName}`}
+              activeOpacity={0.7}
+            >
+              <View
+                style={[
+                  styles.avatarBox,
+                  { backgroundColor: theme.primary + '25', borderColor: theme.primary + '50', flexShrink: 0 },
+                ]}
+              >
+                <Text style={[styles.avatarText, { color: theme.primary }]}>{initials}</Text>
+              </View>
+
               <View style={styles.profileInfo}>
                 <Text style={[styles.profileName, { color: theme.text }]} numberOfLines={1}>
                   {displayName}
                 </Text>
                 <Text style={[styles.profileSub, { color: theme.textSecondary }]}>Local profile</Text>
               </View>
-            )}
 
-            {!isCollapsed && (
               <Ionicons
                 name={profileMenuOpen ? 'chevron-down' : 'chevron-up'}
                 size={14}
                 color={theme.textSecondary}
+                style={{ flexShrink: 0, marginLeft: 4 }}
               />
-            )}
-          </TouchableOpacity>
+            </TouchableOpacity>
 
-          {/* Far Right Gear Icon Button directly to Settings */}
-          <TouchableOpacity
-            style={styles.gearIconBtn}
-            onPress={() => {
-              onSelectScreen('Settings');
-              if (!isDesktop && closeSidebar) closeSidebar();
-            }}
-            title="Settings"
-          >
-            <Feather name="settings" size={18} color={theme.textSecondary} />
-          </TouchableOpacity>
-        </View>
+            {/* Far Right Gear Icon Button directly to Settings */}
+            <TouchableOpacity
+              style={styles.gearIconBtn}
+              onPress={() => {
+                onSelectScreen('Settings');
+                if (!isDesktop && closeSidebar) closeSidebar();
+              }}
+              title="Settings"
+              activeOpacity={0.7}
+            >
+              <Feather name="settings" size={18} color={theme.textSecondary} />
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
+
     </View>
   );
 }
@@ -1001,6 +1036,34 @@ const styles = StyleSheet.create({
     flexShrink: 0,
     paddingTop: Platform.OS === 'web' ? 8 : 12,
   },
+  zoneACollapsed: {
+    paddingTop: 8,
+    alignItems: 'center',
+  },
+  railTopCol: {
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 4,
+    width: '100%',
+  },
+  railLogoBtn: {
+    width: 38,
+    height: 38,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  railIconBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  railCenterCol: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+  },
   topRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1012,6 +1075,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 8,
   },
+
   logoRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1051,6 +1115,14 @@ const styles = StyleSheet.create({
     borderRadius: 18, // Pill highlight
     width: '100%',
   },
+  newChatPillBtnCollapsed: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    paddingHorizontal: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   newChatPillText: {
     color: '#FFFFFF',
     fontWeight: '700',
@@ -1064,6 +1136,14 @@ const styles = StyleSheet.create({
     borderRadius: 17,
     borderWidth: 1,
     width: '100%',
+  },
+  addDatasetPillBtnCollapsed: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    paddingHorizontal: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   addDatasetPillText: {
     fontSize: 12.5,
@@ -1256,6 +1336,32 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     position: 'relative',
   },
+  zoneCCollapsed: {
+    paddingHorizontal: 0,
+    paddingBottom: 12,
+    alignItems: 'center',
+  },
+  railBottomCol: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingBottom: 12,
+    paddingTop: 6,
+    width: '100%',
+  },
+  railGearBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  railAvatarBtn: {
+    width: 38,
+    height: 38,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   zoneCFooterRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1268,6 +1374,8 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 8,
     flex: 1,
+    minWidth: 0,
+    overflow: 'hidden',
   },
   profileRowCollapsed: {
     justifyContent: 'center',

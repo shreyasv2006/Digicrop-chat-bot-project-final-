@@ -14,6 +14,8 @@ import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { COLORS } from './src/constants/theme';
 import Sidebar from './src/components/Sidebar';
 import Header from './src/components/Header';
+import AppDialogContainer from './src/components/AppDialogContainer';
+import { alertDialog } from './src/services/dialogService';
 import { injectWebFonts } from './src/utils/injectWebFonts';
 import datasetService from './src/services/datasetService';
 import {
@@ -283,7 +285,7 @@ export default function App() {
         reloadChats(remainingActive.id);
       }
     } catch (err) {
-      alert(err.message || 'Could not delete profile.');
+      alertDialog({ title: 'Profile Error', message: err.message || 'Could not delete profile.' });
     }
   };
 
@@ -521,6 +523,9 @@ export default function App() {
             datasetService.notifyListeners();
           }}
         />
+
+        {/* Global In-App Dialog & Toast Container */}
+        <AppDialogContainer theme={theme} />
       </SafeAreaView>
     </SafeAreaProvider>
   );

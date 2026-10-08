@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Platform }
 import { Ionicons } from '@expo/vector-icons';
 import { SIZES } from '../constants/theme';
 import { getSavedConversationsFromStorage, deleteSavedConversation } from '../services/datasetData';
+import { confirmDialog, showToast } from '../services/dialogService';
 
 export default function SavedConversations({ theme, onNavigate }) {
   const [list, setList] = useState([]);
@@ -18,25 +19,24 @@ export default function SavedConversations({ theme, onNavigate }) {
   const handleCopy = (text) => {
     if (typeof navigator !== 'undefined' && navigator.clipboard) {
       navigator.clipboard.writeText(text);
-      if (Platform.OS === 'web') alert('Copied to clipboard!');
+      showToast('Copied to clipboard!', 'success');
     }
   };
 
-  const handleDelete = (id) => {
-    const confirmDelete = () => {
+  const handleDelete = async (id) => {
+    const ok = await confirmDialog({
+      title: 'Delete Saved Item',
+      message: 'Are you sure you want to delete this saved item?',
+      confirmText: 'Delete',
+      isDestructive: true,
+    });
+    if (ok) {
       deleteSavedConversation(id);
       reloadSaved();
-    };
-
-    if (Platform.OS === 'web') {
-      if (window.confirm('Delete this saved conversation?')) confirmDelete();
-    } else {
-      Alert.alert('Delete Saved Item', 'Are you sure you want to delete this saved item?', [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete', style: 'destructive', onPress: confirmDelete }
-      ]);
+      showToast('Saved item removed', 'info');
     }
   };
+
 
   if (list.length === 0) {
     return (

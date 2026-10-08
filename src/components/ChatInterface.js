@@ -16,6 +16,7 @@ import DCLogo from './DCLogo';
 import MarkdownText from './MarkdownText';
 import { datasetService } from '../services/datasetService';
 import { saveConversationToStorage } from '../services/datasetData';
+import { showToast } from '../services/dialogService';
 
 export default function ChatInterface({
   theme,
@@ -144,8 +145,9 @@ export default function ChatInterface({
                               title: messages[index - 1] ? messages[index - 1].text : 'Saved Answer',
                               desc: msg.text,
                             });
-                            if (Platform.OS === 'web') alert('Answer saved! View in the Saved tab.');
+                            showToast('Answer saved! View in the Saved tab.', 'success');
                           }}
+
                         >
                           <Ionicons
                             name="bookmark-outline"

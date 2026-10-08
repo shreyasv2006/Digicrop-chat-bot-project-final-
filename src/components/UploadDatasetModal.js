@@ -13,6 +13,8 @@ import {
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { SIZES } from '../constants/theme';
 import { datasetService, DATASET_TEMPLATES } from '../services/datasetService';
+import { decodeFileBuffer } from '../services/datasetParser';
+import { alertDialog, choiceDialog, showToast } from '../services/dialogService';
 
 const OCR_LANGUAGES = [
   { code: 'eng', label: 'English' },
@@ -47,6 +49,7 @@ export default function UploadDatasetModal({
   const [ocrProgressMessage, setOcrProgressMessage] = useState('');
   const [ocrConfidence, setOcrConfidence] = useState(null); // number or 'n/a'
   const [isOcrReviewStep, setIsOcrReviewStep] = useState(false);
+  const [indexProgress, setIndexProgress] = useState(null);
 
   const cancelRef = useRef(false);
   const activeWorkerRef = useRef(null);
@@ -137,10 +140,16 @@ export default function UploadDatasetModal({
     }
 
     // 3. Regular text/csv/markdown files
+    if (file.size > 15 * 1024 * 1024) {
+      setErrorMsg('File exceeds the 15 MB limit. Please select a smaller file.');
+      alertDialog({ title: 'File Too Large', message: 'File exceeds the 15 MB limit. Please select a smaller file.' });
+      return;
+    }
+
     setIsProcessing(true);
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const raw = e.target.result || '';
+    try {
+      const buffer = await file.arrayBuffer();
+      const raw = decodeFileBuffer(buffer);
       // Clean non-printable control characters
       const clean = raw.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g, ' ');
       setMarkdownContent(clean.trim());
@@ -150,13 +159,12 @@ export default function UploadDatasetModal({
         setFarmId((farmMatch[1] || farmMatch[0]).toUpperCase());
       }
       setIsProcessing(false);
-    };
-    reader.onerror = () => {
+    } catch (err) {
       setIsProcessing(false);
-      setErrorMsg('Failed to read file. Please try pasting the content instead.');
-    };
-    reader.readAsText(file);
+      setErrorMsg('Failed to read file: ' + err.message);
+    }
   };
+
 
   const runImageOcr = async (file) => {
     setIsOcrMode(true);
@@ -329,7 +337,7 @@ export default function UploadDatasetModal({
     }
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     setErrorMsg('');
     setSuccessMsg('');
 
@@ -342,46 +350,71 @@ export default function UploadDatasetModal({
       return;
     }
 
-    setIsProcessing(true);
+    const trimmedName = datasetName.trim();
+    let replaceExisting = false;
 
-    setTimeout(() => {
-      try {
-        let rawMd = markdownContent;
-        if (!rawMd.startsWith('---') && !fileNameUploaded.endsWith('.csv')) {
-          rawMd = `---
-name: ${datasetName.trim()}
+    if (datasetService.hasDatasetWithName(trimmedName)) {
+      const choice = await choiceDialog({
+        title: 'Duplicate Dataset Name',
+        message: `A dataset named "${trimmedName}" already exists. How would you like to proceed?`,
+        choices: [
+          { label: 'Replace Existing', value: 'replace', isDestructive: true },
+          { label: 'Keep Both (Add as duplicate)', value: 'keep', isPrimary: true },
+        ],
+      });
+      if (!choice) return;
+      if (choice === 'replace') replaceExisting = true;
+    }
+
+    setIsProcessing(true);
+    setIndexProgress({ percent: 10, processedRows: 0, totalRows: 0, processedChunks: 0, totalChunks: 0 });
+
+    try {
+      let rawMd = markdownContent;
+      if (!rawMd.startsWith('---') && !fileNameUploaded.endsWith('.csv')) {
+        rawMd = `---
+name: ${trimmedName}
 category: ${category.trim() || 'Farm Data'}
 farm_id: ${farmId.trim() || ''}
 description: ${description.trim() || 'Custom dataset.'}
 ---
 
 ${markdownContent.trim()}`;
-        }
-
-        const cleanFileName =
-          fileNameUploaded || `${datasetName.toLowerCase().replace(/[^a-z0-9]/g, '_')}.md`;
-
-        const sourceLabel = isOcrMode ? 'OCR' : null;
-        const newDs = datasetService.addCustomDataset(
-          rawMd,
-          cleanFileName,
-          activeTab === 'paste',
-          sourceLabel
-        );
-
-        setIsProcessing(false);
-        setSuccessMsg(`✅ ${newDs.name} indexed successfully (${newDs.chunkCount} chunks)!`);
-
-        setTimeout(() => {
-          if (onDatasetAdded) onDatasetAdded(newDs);
-          handleClose();
-        }, 600);
-      } catch (err) {
-        setIsProcessing(false);
-        setErrorMsg(`Failed to index dataset: ${err.message}`);
       }
-    }, 200);
+
+      const cleanFileName =
+        fileNameUploaded || `${trimmedName.toLowerCase().replace(/[^a-z0-9]/g, '_')}.csv`;
+
+      const sourceLabel = isOcrMode ? 'OCR' : null;
+
+      const newDs = await datasetService.addCustomDatasetAsync({
+        rawText: rawMd,
+        fileName: cleanFileName,
+        isPasted: activeTab === 'paste',
+        sourceLabel,
+        replaceExisting,
+        onProgress: (p) => {
+          setIndexProgress(p);
+        },
+      });
+
+      setIsProcessing(false);
+      setIndexProgress(null);
+      setSuccessMsg(`✅ ${newDs.name} indexed successfully (${newDs.chunkCount} chunks)!`);
+      showToast(`Dataset ${newDs.name} added (${newDs.rawRowCount || newDs.chunkCount} rows/chunks)!`, 'success');
+
+      setTimeout(() => {
+        if (onDatasetAdded) onDatasetAdded(newDs);
+        handleClose();
+      }, 500);
+    } catch (err) {
+      setIsProcessing(false);
+      setIndexProgress(null);
+      setErrorMsg(`Failed to index dataset: ${err.message}`);
+      alertDialog({ title: 'Indexing Error', message: err.message });
+    }
   };
+
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
@@ -507,6 +540,39 @@ ${markdownContent.trim()}`;
                 </TouchableOpacity>
               </View>
             )}
+
+            {/* Dataset Indexing Progress Bar */}
+            {isProcessing && indexProgress && (
+              <View
+                style={[
+                  styles.progressCard,
+                  { backgroundColor: theme.background, borderColor: theme.border },
+                ]}
+              >
+                <View style={styles.progressHeader}>
+                  <Text style={[styles.progressTitle, { color: theme.text }]}>
+                    Indexing Dataset {indexProgress.processedRows > 0 ? `(${indexProgress.processedRows} / ${indexProgress.totalRows} rows)` : `(${indexProgress.processedChunks} chunks)`}
+                  </Text>
+                  <Text style={[styles.progressPercentText, { color: theme.primary }]}>
+                    {indexProgress.percent}%
+                  </Text>
+                </View>
+
+                <View style={[styles.progressBarTrack, { backgroundColor: theme.border }]}>
+                  <View
+                    style={[
+                      styles.progressBarFill,
+                      { width: `${Math.max(5, indexProgress.percent)}%`, backgroundColor: theme.primary },
+                    ]}
+                  />
+                </View>
+
+                <Text style={[styles.progressStatusText, { color: theme.textSecondary }]}>
+                  Parsing schema, calculating chunks & caching in browser...
+                </Text>
+              </View>
+            )}
+
 
             {/* OCR Review Step Banner */}
             {isOcrReviewStep && (

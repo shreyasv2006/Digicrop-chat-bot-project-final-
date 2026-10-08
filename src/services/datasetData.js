@@ -5,6 +5,11 @@
  */
 
 import { datasetService } from './datasetService';
+import {
+  matchStandardFieldName,
+  parseCSVAccurate,
+  parseMarkdownTable,
+} from './datasetParser';
 
 /**
  * Normalizes string keys/headers for tolerant field matching
@@ -22,30 +27,7 @@ function normalizeKey(str) {
  * Map normalized key to standard internal metric name
  */
 function mapKeyToStandardField(key) {
-  const norm = normalizeKey(key);
-  if (!norm) return null;
-
-  if (['farmid', 'farm', 'field', 'plot', 'site', 'name', 'farmname', 'fieldid', 'plotid', 'siteid'].includes(norm)) return 'farmId';
-  if (['crop', 'croptype', 'cropname', 'variety'].includes(norm)) return 'crop';
-  if (['location', 'district', 'state', 'village', 'city', 'address'].includes(norm)) return 'location';
-  if (['area', 'areaacres', 'acres', 'hectares', 'size'].includes(norm)) return 'area';
-  if (['ndvi', 'canopyndvi', 'vegetationindex', 'evi', 'ndre', 'ndwi'].includes(norm)) return 'ndvi';
-  if (['soilmoisture', 'moisture', 'vwc', 'sm', 'soilmoisturepct', 'moisturepct'].includes(norm)) return 'soilMoisture';
-  if (['ph', 'soilph'].includes(norm)) return 'ph';
-  if (['ec', 'electricalconductivity', 'ecdsm'].includes(norm)) return 'ec';
-  if (['temperature', 'soiltemp', 'airtemp', 'temp', 'tempc', 'tempmaxc', 'tempminc'].includes(norm)) return 'temperature';
-  if (['humidity', 'humiditypct', 'rh'].includes(norm)) return 'humidity';
-  if (['rainfall', 'rain', 'precipitation', 'rainfallmm'].includes(norm)) return 'rainfall';
-  if (['wind', 'windspeed', 'windkmh'].includes(norm)) return 'wind';
-  if (['date', 'timestamp', 'time', 'day'].includes(norm)) return 'date';
-  if (['alert', 'severity', 'risk', 'status', 'warning', 'condition', 'issue', 'pestdisease'].includes(norm)) return 'severity';
-  if (['growthstage', 'stage'].includes(norm)) return 'growthStage';
-  if (['canopycoverage', 'canopy', 'coverage'].includes(norm)) return 'canopyCoverage';
-  if (['nitrogen', 'n'].includes(norm)) return 'nitrogen';
-  if (['phosphorus', 'p'].includes(norm)) return 'phosphorus';
-  if (['potassium', 'k'].includes(norm)) return 'potassium';
-
-  return null;
+  return matchStandardFieldName(key);
 }
 
 /**
@@ -231,18 +213,29 @@ export function parseKVToRecords(rawText) {
  * Parse any dataset into normalized data rows
  */
 export function extractNormalizedRows(dataset) {
-  const text = dataset.raw || dataset.content || '';
-  if (!text.trim()) return { rows: [], detectedFields: [], rawRowCount: 0 };
+  if (!dataset) return { rows: [], detectedFields: [], rawRowCount: 0 };
 
-  let rawRows = parseCSVToRows(text);
-  if (rawRows.length === 0) {
-    rawRows = parseMDTableToRows(text);
-  }
-  if (rawRows.length === 0) {
-    rawRows = parseWhitespaceTableToRows(text);
-  }
-  if (rawRows.length === 0) {
-    rawRows = parseKVToRecords(text);
+  let rawRows = [];
+  if (Array.isArray(dataset.rowObjects) && dataset.rowObjects.length > 0) {
+    rawRows = dataset.rowObjects;
+  } else {
+    const text = dataset.raw || dataset.content || '';
+    if (!text.trim()) return { rows: [], detectedFields: [], rawRowCount: 0 };
+
+    const csvRes = parseCSVAccurate(text);
+    if (csvRes && csvRes.rowObjects && csvRes.rowObjects.length > 0) {
+      rawRows = csvRes.rowObjects;
+    } else {
+      const mdRes = parseMarkdownTable(text);
+      if (mdRes && mdRes.rowObjects && mdRes.rowObjects.length > 0) {
+        rawRows = mdRes.rowObjects;
+      } else {
+        rawRows = parseCSVToRows(text);
+        if (rawRows.length === 0) rawRows = parseMDTableToRows(text);
+        if (rawRows.length === 0) rawRows = parseWhitespaceTableToRows(text);
+        if (rawRows.length === 0) rawRows = parseKVToRecords(text);
+      }
+    }
   }
 
   const detectedFieldSet = new Set();

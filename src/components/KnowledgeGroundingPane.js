@@ -4,6 +4,7 @@ import { Ionicons, Feather } from '@expo/vector-icons';
 import { SIZES } from '../constants/theme';
 import { datasetService } from '../services/datasetService';
 import { getDetectedFieldsString } from '../services/datasetData';
+import { confirmDialog, showToast } from '../services/dialogService';
 
 export default function KnowledgeGroundingPane({ theme, onDatasetChanged, isOpen = true }) {
   const [datasets, setDatasets] = useState([]);
@@ -34,28 +35,21 @@ export default function KnowledgeGroundingPane({ theme, onDatasetChanged, isOpen
     setEditingId(null);
   };
 
-  const handleDelete = (ds) => {
-    const confirmDelete = () => {
+  const handleDelete = async (ds) => {
+    const ok = await confirmDialog({
+      title: 'Delete Dataset',
+      message: `Delete dataset "${ds.name}"?`,
+      confirmText: 'Delete',
+      isDestructive: true,
+    });
+    if (ok) {
       datasetService.removeCustomDataset(ds.id);
       reloadDatasets();
       if (onDatasetChanged) onDatasetChanged();
-    };
-
-    if (Platform.OS === 'web') {
-      if (window.confirm(`Delete dataset "${ds.name}"?`)) {
-        confirmDelete();
-      }
-    } else {
-      Alert.alert(
-        'Delete Dataset',
-        `Are you sure you want to delete "${ds.name}"?`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Delete', style: 'destructive', onPress: confirmDelete }
-        ]
-      );
+      showToast(`Deleted "${ds.name}"`, 'info');
     }
   };
+
 
   if (!isOpen) return null;
 
