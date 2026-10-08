@@ -201,6 +201,37 @@ class DatasetService {
     });
   }
 
+  getDatasetById(id) {
+    if (!id) return null;
+    return this.getAllDatasets().find(d => d.id === id || d.fileName === id || d.name === id) || null;
+  }
+
+  getLoadedFarmIds() {
+    try {
+      const set = new Set();
+      const all = this.getAllDatasets();
+      if (Array.isArray(all)) {
+        all.forEach(d => {
+          if (d.farmId) set.add(d.farmId.toString().toUpperCase());
+          if (Array.isArray(d.detectedFarmIds)) {
+            d.detectedFarmIds.forEach(fid => {
+              if (fid) set.add(fid.toString().toUpperCase());
+            });
+          }
+          if (Array.isArray(d.rowObjects)) {
+            d.rowObjects.forEach(r => {
+              if (r && r.farmId) set.add(r.farmId.toString().toUpperCase());
+            });
+          }
+        });
+      }
+      return Array.from(set).sort();
+    } catch (err) {
+      console.warn('datasetService.getLoadedFarmIds error:', err);
+      return [];
+    }
+  }
+
   hasDatasetWithName(name) {
     if (!name) return false;
     const clean = name.trim().toLowerCase();
@@ -388,4 +419,13 @@ class DatasetService {
 }
 
 export const datasetService = new DatasetService();
+
+export function getLoadedFarmIds() {
+  return datasetService.getLoadedFarmIds();
+}
+
+export function getDatasetById(id) {
+  return datasetService.getDatasetById(id);
+}
+
 export default datasetService;

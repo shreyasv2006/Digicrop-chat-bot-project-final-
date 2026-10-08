@@ -5,8 +5,10 @@ import { SIZES } from '../constants/theme';
 import { datasetService } from '../services/datasetService';
 
 export default function QuickActionCards({ theme, onSelectQuestion }) {
-  const { width } = useWindowDimensions();
-  const farmIds = datasetService.getLoadedFarmIds();
+  const rawFarmIds = typeof datasetService?.getLoadedFarmIds === 'function'
+    ? datasetService.getLoadedFarmIds()
+    : [];
+  const farmIds = Array.isArray(rawFarmIds) ? rawFarmIds : [];
 
   const getColCount = () => {
     if (width < 600) return 1;
