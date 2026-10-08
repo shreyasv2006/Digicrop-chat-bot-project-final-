@@ -2,7 +2,7 @@
  * DigiCrop AI - Advanced RAG Engine, Intent Classifier & Targeted Chunking
  */
 
-import { SYSTEM_PROMPT } from '../config/systemPrompt';
+import { SYSTEM_PROMPT } from '../config/systemPrompt.js';
 
 /**
  * Simple Front Matter Parser

@@ -50,8 +50,12 @@ export default function UploadDatasetModal({
   const [ocrConfidence, setOcrConfidence] = useState(null); // number or 'n/a'
   const [isOcrReviewStep, setIsOcrReviewStep] = useState(false);
   const [indexProgress, setIndexProgress] = useState(null);
+  const [detectedFileType, setDetectedFileType] = useState('Structured CSV Telemetry');
+  const [fileSizeFormatted, setFileSizeFormatted] = useState('');
 
   const cancelRef = useRef(false);
+  const cancelTokenRef = useRef({ isCancelled: false });
+  const watchdogRef = useRef(null);
   const activeWorkerRef = useRef(null);
 
   useEffect(() => {
@@ -62,6 +66,11 @@ export default function UploadDatasetModal({
 
   const resetForm = () => {
     cancelRef.current = true;
+    if (cancelTokenRef.current) cancelTokenRef.current.isCancelled = true;
+    if (watchdogRef.current) {
+      clearInterval(watchdogRef.current);
+      watchdogRef.current = null;
+    }
     if (activeWorkerRef.current) {
       try {
         activeWorkerRef.current.terminate();
@@ -76,6 +85,9 @@ export default function UploadDatasetModal({
     setErrorMsg('');
     setSuccessMsg('');
     setFileNameUploaded('');
+    setDetectedFileType('Structured CSV Telemetry');
+    setFileSizeFormatted('');
+    setIndexProgress(null);
     setIsProcessing(false);
     setIsOcrMode(false);
     setOcrProgressPercent(0);
@@ -140,11 +152,16 @@ export default function UploadDatasetModal({
     }
 
     // 3. Regular text/csv/markdown files
-    if (file.size > 15 * 1024 * 1024) {
-      setErrorMsg('File exceeds the 15 MB limit. Please select a smaller file.');
-      alertDialog({ title: 'File Too Large', message: 'File exceeds the 15 MB limit. Please select a smaller file.' });
+    if (file.size > 25 * 1024 * 1024) {
+      setErrorMsg('File exceeds the 25 MB limit. Please select a smaller file.');
+      alertDialog({ title: 'File Too Large', message: 'File exceeds the 25 MB limit. Please select a smaller file.' });
       return;
     }
+
+    const formattedSize = file.size >= 1024 * 1024
+      ? `${(file.size / (1024 * 1024)).toFixed(2)} MB`
+      : `${Math.max(1, Math.round(file.size / 1024))} KB`;
+    setFileSizeFormatted(formattedSize);
 
     setIsProcessing(true);
     try {
@@ -153,6 +170,14 @@ export default function UploadDatasetModal({
       // Clean non-printable control characters
       const clean = raw.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g, ' ');
       setMarkdownContent(clean.trim());
+
+      let detected = 'Plain Text';
+      if (file.name.endsWith('.csv') || file.name.endsWith('.tsv') || clean.includes(',')) {
+        detected = 'Structured CSV Telemetry';
+      } else if (file.name.endsWith('.md') || clean.includes('|')) {
+        detected = 'Markdown Document';
+      }
+      setDetectedFileType(detected);
 
       const farmMatch = clean.match(/farm_id:\s*(F[0-9]{3}|F00[0-9])|\bF[0-9]{3}\b|\bF00[0-9]\b/i);
       if (farmMatch && !farmId) {
@@ -338,6 +363,7 @@ export default function UploadDatasetModal({
   };
 
   const handleSave = async () => {
+    if (isProcessing) return; // Prevent double submission
     setErrorMsg('');
     setSuccessMsg('');
 
@@ -366,8 +392,33 @@ export default function UploadDatasetModal({
       if (choice === 'replace') replaceExisting = true;
     }
 
+    const cancelToken = { isCancelled: false };
+    cancelTokenRef.current = cancelToken;
+
     setIsProcessing(true);
-    setIndexProgress({ percent: 10, processedRows: 0, totalRows: 0, processedChunks: 0, totalChunks: 0 });
+    setIndexProgress({ percent: 5, processedRows: 0, totalRows: 0, processedChunks: 0, totalChunks: 0 });
+
+    let lastProgressTimestamp = Date.now();
+    const startTime = Date.now();
+
+    if (watchdogRef.current) clearInterval(watchdogRef.current);
+    watchdogRef.current = setInterval(() => {
+      const now = Date.now();
+      // Watchdog: 10 seconds without any progress message or 60s total
+      if (now - lastProgressTimestamp > 10000 || now - startTime > 60000) {
+        if (watchdogRef.current) {
+          clearInterval(watchdogRef.current);
+          watchdogRef.current = null;
+        }
+        cancelToken.isCancelled = true;
+        setIsProcessing(false);
+        setIndexProgress(null);
+        alertDialog({
+          title: 'Indexing Stopped',
+          message: 'Indexing took too long and was stopped. Try a smaller file or remove unusual formatting.',
+        });
+      }
+    }, 1000);
 
     try {
       let rawMd = markdownContent;
@@ -393,10 +444,17 @@ ${markdownContent.trim()}`;
         isPasted: activeTab === 'paste',
         sourceLabel,
         replaceExisting,
+        cancelToken,
         onProgress: (p) => {
+          lastProgressTimestamp = Date.now();
           setIndexProgress(p);
         },
       });
+
+      if (watchdogRef.current) {
+        clearInterval(watchdogRef.current);
+        watchdogRef.current = null;
+      }
 
       setIsProcessing(false);
       setIndexProgress(null);
@@ -408,8 +466,15 @@ ${markdownContent.trim()}`;
         handleClose();
       }, 500);
     } catch (err) {
+      if (watchdogRef.current) {
+        clearInterval(watchdogRef.current);
+        watchdogRef.current = null;
+      }
       setIsProcessing(false);
       setIndexProgress(null);
+      if (cancelToken.isCancelled) {
+        return;
+      }
       setErrorMsg(`Failed to index dataset: ${err.message}`);
       alertDialog({ title: 'Indexing Error', message: err.message });
     }
@@ -541,20 +606,44 @@ ${markdownContent.trim()}`;
               </View>
             )}
 
-            {/* Dataset Indexing Progress Bar */}
-            {isProcessing && indexProgress && (
+            {/* File Info & Real Progress Bar during Indexing */}
+            {isProcessing && !isOcrMode && (
               <View
                 style={[
                   styles.progressCard,
-                  { backgroundColor: theme.background, borderColor: theme.border },
+                  { backgroundColor: theme.background, borderColor: theme.border, marginVertical: 10 },
                 ]}
               >
+                {/* File Details Overview */}
+                <View style={{ marginBottom: 10, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: theme.border }}>
+                  <Text style={{ fontSize: 13, fontWeight: 'bold', color: theme.text, marginBottom: 4 }} numberOfLines={1}>
+                    📄 {fileNameUploaded || datasetName || 'Custom Dataset'}
+                  </Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' }}>
+                    {fileSizeFormatted ? (
+                      <Text style={{ fontSize: 11.5, color: theme.textSecondary, marginRight: 12 }}>
+                        Size: <Text style={{ color: theme.text, fontWeight: '600' }}>{fileSizeFormatted}</Text>
+                      </Text>
+                    ) : null}
+                    <Text style={{ fontSize: 11.5, color: theme.textSecondary, marginRight: 12 }}>
+                      Format: <Text style={{ color: theme.primary, fontWeight: '600' }}>{detectedFileType}</Text>
+                    </Text>
+                    <Text style={{ fontSize: 11.5, color: theme.textSecondary }}>
+                      Status: <Text style={{ color: '#10B981', fontWeight: 'bold' }}>Indexing...</Text>
+                    </Text>
+                  </View>
+                </View>
+
                 <View style={styles.progressHeader}>
                   <Text style={[styles.progressTitle, { color: theme.text }]}>
-                    Indexing Dataset {indexProgress.processedRows > 0 ? `(${indexProgress.processedRows} / ${indexProgress.totalRows} rows)` : `(${indexProgress.processedChunks} chunks)`}
+                    {indexProgress && indexProgress.processedRows > 0
+                      ? `Processing Rows (${indexProgress.processedRows.toLocaleString()} / ${indexProgress.totalRows.toLocaleString()})`
+                      : indexProgress && indexProgress.processedChunks > 0
+                      ? `Chunking Dataset (${indexProgress.processedChunks} chunks)`
+                      : 'Preparing Dataset...'}
                   </Text>
                   <Text style={[styles.progressPercentText, { color: theme.primary }]}>
-                    {indexProgress.percent}%
+                    {indexProgress ? indexProgress.percent : 10}%
                   </Text>
                 </View>
 
@@ -562,14 +651,21 @@ ${markdownContent.trim()}`;
                   <View
                     style={[
                       styles.progressBarFill,
-                      { width: `${Math.max(5, indexProgress.percent)}%`, backgroundColor: theme.primary },
+                      { width: `${Math.max(5, indexProgress ? indexProgress.percent : 10)}%`, backgroundColor: theme.primary },
                     ]}
                   />
                 </View>
 
-                <Text style={[styles.progressStatusText, { color: theme.textSecondary }]}>
-                  Parsing schema, calculating chunks & caching in browser...
+                <Text style={[styles.progressStatusText, { color: theme.textSecondary, marginTop: 6 }]}>
+                  Parsing structured columns, caching into IndexedDB & updating knowledge grounding...
                 </Text>
+
+                <TouchableOpacity
+                  style={[styles.cancelOcrBtn, { borderColor: '#EF4444', marginTop: 10 }]}
+                  onPress={handleClose}
+                >
+                  <Text style={{ color: '#EF4444', fontWeight: 'bold', fontSize: 12 }}>Cancel Indexing</Text>
+                </TouchableOpacity>
               </View>
             )}
 

@@ -3,7 +3,7 @@
  * Manages pre-packaged datasets and user-uploaded custom .md, .csv, and .txt datasets
  */
 
-import { getBuiltinDatasets, parseFrontMatter } from '../utils/ragEngine';
+import { getBuiltinDatasets, parseFrontMatter } from '../utils/ragEngine.js';
 import {
   parseCSVAccurate,
   parseMarkdownTable,
@@ -11,7 +11,14 @@ import {
   generateSafeDatasetId,
   stripFrontmatter,
   matchStandardFieldName,
-} from './datasetParser';
+} from './datasetParser.js';
+import {
+  loadAllStoredDatasets,
+  saveDatasetRecord,
+  removeDatasetRecord,
+  clearAllStoredDatasets,
+  cleanupUnfinishedDatasets as storageCleanup,
+} from './datasetStorage.js';
 
 const CUSTOM_DATASETS_STORAGE_KEY = 'digicrop_custom_datasets';
 
@@ -169,22 +176,66 @@ class DatasetService {
       if (typeof window !== 'undefined' && window.localStorage) {
         const saved = window.localStorage.getItem(CUSTOM_DATASETS_STORAGE_KEY);
         if (saved) {
-          return JSON.parse(saved);
+          const parsed = JSON.parse(saved);
+          // Kick off async hydration from IndexedDB in background
+          loadAllStoredDatasets().then((idbList) => {
+            if (idbList && idbList.length > 0) {
+              this.customDatasets = idbList.filter((d) => d && d.status !== 'indexing');
+              this.notifyListeners();
+            }
+          }).catch(() => {});
+          return parsed.filter((d) => d && d.status !== 'indexing');
         }
       }
     } catch (err) {
       console.warn('Failed to load custom datasets from storage:', err);
     }
+
+    // Attempt direct IndexedDB load if localStorage is empty
+    loadAllStoredDatasets().then((idbList) => {
+      if (idbList && idbList.length > 0) {
+        this.customDatasets = idbList.filter((d) => d && d.status !== 'indexing');
+        this.notifyListeners();
+      }
+    }).catch(() => {});
+
     return [];
   }
 
+  async cleanupUnfinishedDatasets() {
+    const cleanedCount = await storageCleanup();
+    if (cleanedCount > 0) {
+      const refreshed = await loadAllStoredDatasets();
+      this.customDatasets = refreshed.filter((d) => d && d.status !== 'indexing');
+      this.notifyListeners();
+    }
+    return cleanedCount;
+  }
+
   saveCustomDatasetsToStorage() {
+    // Save lightweight index to localStorage for instant synchronous boot
     try {
       if (typeof window !== 'undefined' && window.localStorage) {
-        window.localStorage.setItem(CUSTOM_DATASETS_STORAGE_KEY, JSON.stringify(this.customDatasets));
+        const lightList = this.customDatasets.map((d) => ({
+          id: d.id,
+          fileName: d.fileName,
+          name: d.name,
+          category: d.category,
+          farmId: d.farmId,
+          crop: d.crop,
+          description: d.description,
+          chunkCount: d.chunkCount || 1,
+          rawRowCount: d.rawRowCount || 0,
+          isCustom: d.isCustom,
+          isPasted: d.isPasted,
+          sourceLabel: d.sourceLabel,
+          addedAt: d.addedAt,
+          status: d.status,
+        }));
+        window.localStorage.setItem(CUSTOM_DATASETS_STORAGE_KEY, JSON.stringify(lightList));
       }
     } catch (err) {
-      console.warn('Failed to save custom datasets to storage:', err);
+      console.warn('Failed to save custom datasets light index to localStorage:', err);
     }
     this.notifyListeners();
   }
@@ -251,6 +302,7 @@ class DatasetService {
     sourceLabel = null,
     onProgress = null,
     replaceExisting = false,
+    cancelToken = null,
   }) {
     if (!rawText || !rawText.trim()) {
       throw new Error('File content is empty.');
@@ -267,66 +319,91 @@ class DatasetService {
     let parsedData = parseCSVAccurate(cleanBody);
     let isStructuredCSV = false;
 
-    if (parsedData && parsedData.rows.length > 0 && parsedData.headers.length >= 2) {
-      isStructuredCSV = true;
+    const isCsvExtension = /\.(csv|tsv)$/i.test(fileName);
+
+    if (parsedData && parsedData.headers.length >= 2) {
+      if (parsedData.rows.length === 0) {
+        if (isCsvExtension) {
+          throw new Error('Dataset contains only headers and no data rows.');
+        }
+      } else {
+        isStructuredCSV = true;
+      }
     } else {
       const mdTable = parseMarkdownTable(cleanBody);
-      if (mdTable && mdTable.rows.length > 0) {
+      if (mdTable && mdTable.headers.length >= 2) {
+        if (mdTable.rows.length === 0) {
+          throw new Error('Dataset contains only headers and no data rows.');
+        }
         parsedData = mdTable;
         isStructuredCSV = true;
       }
     }
 
-    if (isStructuredCSV && parsedData.rows.length === 0) {
-      throw new Error('Dataset contains only headers and no data rows.');
-    }
-
-    // Asynchronously chunk the dataset with progress reporting and yielding
-    const chunks = await chunkDatasetAsync(cleanName, isStructuredCSV ? parsedData : null, cleanBody, onProgress);
-
-    const extractedFarms = extractFarmIdsFromContent(rawText + ' ' + (frontmatter?.farm_id || ''));
-    const detectedFarm = frontmatter?.farm_id || (extractedFarms.length > 0 ? extractedFarms[0] : null);
-
-    const newDataset = {
+    // Write temporary record with status 'indexing' for crash recovery
+    const tempDataset = {
       id: cleanId,
-      fileName: fileName,
+      fileName,
       name: cleanName,
-      category: frontmatter?.category || 'Farm Data',
-      farmId: detectedFarm,
-      crop: frontmatter?.crop || null,
-      description: frontmatter?.description || `Custom dataset (${fileName}).`,
-      content: cleanBody,
-      raw: rawText,
-      headers: isStructuredCSV ? parsedData.headers : [],
-      rows: isStructuredCSV ? parsedData.rows : [],
-      rowObjects: isStructuredCSV ? parsedData.rowObjects : [],
-      rawRowCount: isStructuredCSV ? parsedData.rows.length : 0,
-      chunkCount: chunks.length,
-      chunks: chunks,
-      isCustom: true,
-      isPasted: isPasted,
-      sourceLabel: sourceLabel || (isPasted ? 'Pasted' : 'Uploaded'),
+      status: 'indexing',
       addedAt: new Date().toISOString(),
-      status: 'ready',
     };
+    await saveDatasetRecord(tempDataset);
 
-    const existingIndex = this.customDatasets.findIndex(d =>
-      d.fileName.toLowerCase() === fileName.toLowerCase() ||
-      d.name.toLowerCase() === cleanName.toLowerCase()
-    );
+    try {
+      // Asynchronously chunk the dataset with progress reporting and yielding
+      const chunks = await chunkDatasetAsync(cleanName, isStructuredCSV ? parsedData : null, cleanBody, onProgress, cancelToken);
 
-    if (existingIndex !== -1 && replaceExisting) {
-      newDataset.id = this.customDatasets[existingIndex].id;
-      this.customDatasets[existingIndex] = newDataset;
-    } else if (existingIndex !== -1 && !replaceExisting) {
-      newDataset.name = `${cleanName} (1)`;
-      this.customDatasets.push(newDataset);
-    } else {
-      this.customDatasets.push(newDataset);
+      const extractedFarms = extractFarmIdsFromContent(rawText + ' ' + (frontmatter?.farm_id || ''));
+      const detectedFarm = frontmatter?.farm_id || (extractedFarms.length > 0 ? extractedFarms[0] : null);
+
+      const newDataset = {
+        id: cleanId,
+        fileName: fileName,
+        name: cleanName,
+        category: frontmatter?.category || 'Farm Data',
+        farmId: detectedFarm,
+        crop: frontmatter?.crop || null,
+        description: frontmatter?.description || `Custom dataset (${fileName}).`,
+        content: cleanBody,
+        raw: rawText,
+        headers: isStructuredCSV ? parsedData.headers : [],
+        rows: isStructuredCSV ? parsedData.rows : [],
+        rowObjects: isStructuredCSV ? parsedData.rowObjects : [],
+        rawRowCount: isStructuredCSV ? parsedData.rows.length : 0,
+        chunkCount: chunks.length,
+        chunks: chunks,
+        isCustom: true,
+        isPasted: isPasted,
+        sourceLabel: sourceLabel || (isPasted ? 'Pasted' : 'Uploaded'),
+        addedAt: new Date().toISOString(),
+        status: 'ready',
+      };
+
+      const existingIndex = this.customDatasets.findIndex(d =>
+        d.fileName.toLowerCase() === fileName.toLowerCase() ||
+        d.name.toLowerCase() === cleanName.toLowerCase()
+      );
+
+      if (existingIndex !== -1 && replaceExisting) {
+        newDataset.id = this.customDatasets[existingIndex].id;
+        this.customDatasets[existingIndex] = newDataset;
+      } else if (existingIndex !== -1 && !replaceExisting) {
+        newDataset.name = `${cleanName} (1)`;
+        this.customDatasets.push(newDataset);
+      } else {
+        this.customDatasets.push(newDataset);
+      }
+
+      // Single incremental IndexedDB write for this dataset only!
+      await saveDatasetRecord(newDataset);
+      this.saveCustomDatasetsToStorage();
+      return newDataset;
+    } catch (err) {
+      // Remove partial/indexing record on error or cancellation
+      await removeDatasetRecord(cleanId);
+      throw err;
     }
-
-    this.saveCustomDatasetsToStorage();
-    return newDataset;
   }
 
   addCustomDataset(rawText, fileName = 'custom_dataset.md', isPasted = false, sourceLabel = null) {

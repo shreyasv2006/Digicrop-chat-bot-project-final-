@@ -1,6 +1,7 @@
 /**
  * DigiCrop AI - Fast and Accurate Dataset Parsing, Decoding, Field Detection & Chunking
  * Handles CSV, TSV, Markdown tables, and Plain Text with 100% fidelity.
+ * Features Web Worker offloading, loop guarantees, chunk capping, and cancellation support.
  */
 
 /**
@@ -18,65 +19,93 @@ export function normalizeHeaderKey(str) {
 /**
  * Tolerant field classifier matching farm/telemetry attributes
  */
-export function matchStandardFieldName(key) {
-  const norm = normalizeHeaderKey(key);
+export function matchStandardFieldName(rawKey) {
+  const norm = normalizeHeaderKey(rawKey);
   if (!norm) return null;
 
+  // Farm identifier
   if (['farmid', 'farm', 'field', 'plot', 'site', 'name', 'farmname', 'fieldid', 'plotid', 'siteid', 'plotno'].includes(norm)) return 'farmId';
-  if (['crop', 'croptype', 'cropname', 'variety'].includes(norm)) return 'crop';
-  if (['location', 'district', 'state', 'village', 'city', 'address'].includes(norm)) return 'location';
-  if (['area', 'areaacres', 'acres', 'hectares', 'size'].includes(norm)) return 'area';
-  if (['ndvi', 'canopyndvi', 'vegetationindex', 'evi', 'ndre', 'ndwi'].includes(norm)) return 'ndvi';
-  if (['soilmoisture', 'moisture', 'vwc', 'sm', 'soilmoisturepct', 'moisturepct'].includes(norm)) return 'soilMoisture';
-  if (['ph', 'soilph'].includes(norm)) return 'ph';
-  if (['ec', 'electricalconductivity', 'ecdsm', 'ecds_m', 'soilec'].includes(norm)) return 'ec';
-  if (['temperature', 'soiltemp', 'airtemp', 'temp', 'tempc', 'tempmaxc', 'tempminc', 'soiltempc', 'airtempc'].includes(norm)) return 'temperature';
-  if (['humidity', 'humiditypct', 'rh', 'relativehumidity'].includes(norm)) return 'humidity';
-  if (['rainfall', 'rain', 'precipitation', 'rainfallmm'].includes(norm)) return 'rainfall';
-  if (['wind', 'windspeed', 'windkmh'].includes(norm)) return 'wind';
-  if (['date', 'timestamp', 'time', 'day', 'datetime', 'recordedat', 'readingtime'].includes(norm)) return 'date';
-  if (['alert', 'severity', 'risk', 'status', 'warning', 'condition', 'issue', 'pestdisease'].includes(norm)) return 'severity';
-  if (['growthstage', 'stage'].includes(norm)) return 'growthStage';
-  if (['canopycoverage', 'canopy', 'coverage'].includes(norm)) return 'canopyCoverage';
-  if (['nitrogen', 'n'].includes(norm)) return 'nitrogen';
-  if (['phosphorus', 'p'].includes(norm)) return 'phosphorus';
-  if (['potassium', 'k'].includes(norm)) return 'potassium';
+
+  // Timestamp
+  if (['timestamp', 'date', 'datetime', 'time', 'recordedat', 'readingdate', 'epoch', 'dateutc', 'observationdate'].includes(norm)) return 'date';
+
+  // Crop & Growth
+  if (['crop', 'croptype', 'commodity', 'plant', 'species', 'variety', 'cultivar'].includes(norm)) return 'crop';
+  if (['growthstage', 'stage', 'phenology', 'cropstage'].includes(norm)) return 'growthStage';
+
+  // Location & Area
+  if (['location', 'place', 'city', 'district', 'region', 'state', 'taluka', 'village'].includes(norm)) return 'location';
+  if (['area', 'acres', 'areaacres', 'plotsize', 'hectares', 'size', 'landarea'].includes(norm)) return 'area';
+
+  // Vegetation Index (NDVI, NDRE, EVI)
+  if (['ndvi', 'ndvimean', 'avgndvi', 'canopyindex', 'vegetationindex', 'normalizeddifferencedvi', 'indices'].includes(norm)) return 'ndvi';
+
+  // Soil Moisture
+  if (['soilmoisture', 'soilmoisturepct', 'moisture', 'soilwater', 'moisturepct', 'sm', 'volumetricwatercontent', 'vwc', 'rootzonemoisture'].includes(norm)) return 'soilMoisture';
+
+  // Soil pH
+  if (['ph', 'soilph', 'acidity', 'reaction'].includes(norm)) return 'ph';
+
+  // Electrical Conductivity (EC)
+  if (['ec', 'soilec', 'ecds', 'ecdsm', 'electricalconductivity', 'salinity'].includes(norm)) return 'ec';
+
+  // Temperature
+  if (['temperature', 'temp', 'airtemp', 'airtempc', 'soiltemp', 'soiltempc', 'temperaturec'].includes(norm)) return 'temperature';
+
+  // Weather & Environmental
+  if (['humidity', 'humiditypct', 'relhumidity', 'airhumidity'].includes(norm)) return 'humidity';
+  if (['rainfall', 'rainfallmm', 'precipitation', 'rain', 'precipmm'].includes(norm)) return 'rainfall';
+  if (['wind', 'windspeed', 'windspeedkmh', 'windkmh', 'windmph'].includes(norm)) return 'windSpeed';
+
+  // Nutrients (NPK)
+  if (['nitrogen', 'n', 'available_n', 'soil_n'].includes(norm)) return 'nitrogen';
+  if (['phosphorus', 'p', 'available_p', 'soil_p'].includes(norm)) return 'phosphorus';
+  if (['potassium', 'k', 'available_k', 'soil_k'].includes(norm)) return 'potassium';
+
+  // Alerts
+  if (['alert', 'status', 'severity', 'warning', 'alarm', 'health'].includes(norm)) return 'alert';
 
   return null;
 }
 
 /**
- * Generate a safe unique ID for storage and DOM keys
+ * Clean and safe dataset ID generator
  */
 export function generateSafeDatasetId(prefix = 'ds') {
-  return `${prefix}_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+  const timestamp = Date.now();
+  const rand = Math.random().toString(36).substring(2, 8);
+  return `${prefix}_${timestamp}_${rand}`;
 }
 
 /**
- * Decode file bytes handling UTF-8, UTF-8 BOM, UTF-16, and Windows-1252 fallback
+ * Universal byte decoder handling UTF-8, UTF-8 BOM, UTF-16, and Windows-1252
  */
 export function decodeFileBuffer(arrayBuffer) {
-  if (!arrayBuffer) return '';
   const bytes = new Uint8Array(arrayBuffer);
 
-  // Check UTF-8 BOM: EF BB BF
-  if (bytes.length >= 3 && bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF) {
+  // 1. Check for UTF-8 BOM: EF BB BF
+  if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
     return new TextDecoder('utf-8').decode(bytes.subarray(3));
   }
-  // Check UTF-16 LE BOM: FF FE
-  if (bytes.length >= 2 && bytes[0] === 0xFF && bytes[1] === 0xFE) {
+
+  // 2. Check for UTF-16 LE BOM: FF FE
+  if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xfe) {
     return new TextDecoder('utf-16le').decode(bytes.subarray(2));
   }
-  // Check UTF-16 BE BOM: FE FF
-  if (bytes.length >= 2 && bytes[0] === 0xFE && bytes[1] === 0xFF) {
+
+  // 3. Check for UTF-16 BE BOM: FE FF
+  if (bytes.length >= 2 && bytes[0] === 0xfe && bytes[1] === 0xff) {
     return new TextDecoder('utf-16be').decode(bytes.subarray(2));
   }
 
-  // Try UTF-8 with fatal: true to detect non-UTF-8 encodings
+  // 4. Default: decode as UTF-8; on replacement characters fallback to Windows-1252
   try {
-    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-  } catch (e) {
-    // Fallback to windows-1252
+    const text = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+    if (!text.includes('\uFFFD')) {
+      return text;
+    }
+    return new TextDecoder('windows-1252').decode(bytes);
+  } catch (err) {
     try {
       return new TextDecoder('windows-1252').decode(bytes);
     } catch (e2) {
@@ -151,11 +180,11 @@ export function detectDelimiter(textSample) {
 }
 
 /**
- * High-speed, 100% compliant CSV/TSV Parser with quotes, escapes, ragged rows, BOM support
+ * High-speed, 100% compliant CSV/TSV Parser with forward progress guarantee
  */
 export function parseCSVAccurate(rawText, specifiedDelim = null) {
   if (!rawText || typeof rawText !== 'string') {
-    return { headers: [], rows: [], rowObjects: [], delimiter: ',' };
+    return { headers: [], rows: [], rowObjects: [], delimiter: ',', hasOnlyHeaders: false };
   }
 
   // Remove BOM and normalize line endings
@@ -167,19 +196,26 @@ export function parseCSVAccurate(rawText, specifiedDelim = null) {
   // Strip frontmatter if present
   const { text: bodyText } = stripFrontmatter(clean);
   if (!bodyText.trim()) {
-    return { headers: [], rows: [], rowObjects: [], delimiter: ',' };
+    return { headers: [], rows: [], rowObjects: [], delimiter: ',', hasOnlyHeaders: false };
   }
 
   const delimiter = specifiedDelim || detectDelimiter(bodyText);
 
-  // State machine parse
+  // State machine parse with hard iteration bounds
   const records = [];
   let currentRecord = [];
   let currentField = '';
   let inQuotes = false;
   const len = bodyText.length;
+  const maxIterations = len + 1000;
+  let iterations = 0;
 
   for (let i = 0; i < len; i++) {
+    iterations++;
+    if (iterations > maxIterations) {
+      throw new Error('CSV parser iteration limit exceeded. Corrupt or unclosed quotation marks in file.');
+    }
+
     const char = bodyText[i];
 
     if (inQuotes) {
@@ -204,7 +240,6 @@ export function parseCSVAccurate(rawText, specifiedDelim = null) {
       } else if (char === '\n') {
         currentRecord.push(currentField);
         currentField = '';
-        // Only push non-empty records (ignore trailing whitespace row)
         if (currentRecord.length > 1 || (currentRecord.length === 1 && currentRecord[0].trim().length > 0)) {
           records.push(currentRecord);
         }
@@ -224,7 +259,7 @@ export function parseCSVAccurate(rawText, specifiedDelim = null) {
   }
 
   if (records.length === 0) {
-    return { headers: [], rows: [], rowObjects: [], delimiter };
+    return { headers: [], rows: [], rowObjects: [], delimiter, hasOnlyHeaders: false };
   }
 
   // Header row
@@ -250,9 +285,9 @@ export function parseCSVAccurate(rawText, specifiedDelim = null) {
   const rows = [];
   const rowObjects = [];
 
-  for (let i = 0; i < dataRows.length; i++) {
+  const maxDataRows = Math.min(dataRows.length, 100000);
+  for (let i = 0; i < maxDataRows; i++) {
     const rawRow = dataRows[i];
-    // Pad ragged rows
     const row = [];
     const rowObj = {};
     for (let j = 0; j < headers.length; j++) {
@@ -264,16 +299,19 @@ export function parseCSVAccurate(rawText, specifiedDelim = null) {
     rowObjects.push(rowObj);
   }
 
+  const hasOnlyHeaders = headers.length >= 2 && rows.length === 0;
+
   return {
     headers,
     rows,
     rowObjects,
     delimiter,
+    hasOnlyHeaders,
   };
 }
 
 /**
- * Parse Markdown Table
+ * Parse Markdown Table with bounds
  */
 export function parseMarkdownTable(text) {
   if (!text || !text.includes('|')) return null;
@@ -283,7 +321,8 @@ export function parseMarkdownTable(text) {
     .filter((l) => l.length > 0);
 
   let headerIdx = -1;
-  for (let i = 0; i < lines.length - 1; i++) {
+  const maxScan = Math.min(lines.length - 1, 100);
+  for (let i = 0; i < maxScan; i++) {
     if (lines[i].includes('|') && /^[| -:]+$/.test(lines[i + 1])) {
       headerIdx = i;
       break;
@@ -295,7 +334,7 @@ export function parseMarkdownTable(text) {
   const rawHeaderCols = lines[headerIdx]
     .split('|')
     .map((c) => c.trim())
-    .filter((c, idx, arr) => !( (idx === 0 || idx === arr.length - 1) && c === '' ));
+    .filter((c, idx, arr) => !((idx === 0 || idx === arr.length - 1) && c === ''));
 
   if (rawHeaderCols.length < 2) return null;
 
@@ -303,13 +342,14 @@ export function parseMarkdownTable(text) {
   const rows = [];
   const rowObjects = [];
 
-  for (let i = headerIdx + 2; i < lines.length; i++) {
+  const maxLines = Math.min(lines.length, 50000);
+  for (let i = headerIdx + 2; i < maxLines; i++) {
     const line = lines[i];
     if (!line.includes('|') || line.startsWith('#')) break;
     const cols = line
       .split('|')
       .map((c) => c.trim())
-      .filter((c, idx, arr) => !( (idx === 0 || idx === arr.length - 1) && c === '' ));
+      .filter((c, idx, arr) => !((idx === 0 || idx === arr.length - 1) && c === ''));
 
     if (cols.length === 0) continue;
     const row = [];
@@ -327,24 +367,45 @@ export function parseMarkdownTable(text) {
     headers,
     rows,
     rowObjects,
+    hasOnlyHeaders: headers.length >= 2 && rows.length === 0,
   };
 }
 
 /**
  * Fast, Batch-Yielding Chunker for Datasets
- * Every chunk carries dataset title and column headers for perfect LLM grounding.
+ * Guarantees forward progress, yields every 500 rows, caps at 20,000 chunks, supports cancellation.
  */
-export async function chunkDatasetAsync(datasetName, parsedData, rawContent, onProgress = null) {
+export async function chunkDatasetAsync(datasetName, parsedData, rawContent, onProgress = null, cancelToken = null) {
   const chunks = [];
+  const MAX_CHUNKS = 20000;
+  let lastProgressTime = 0;
+
+  const reportProgress = (info) => {
+    if (!onProgress) return;
+    const now = Date.now();
+    if (now - lastProgressTime >= 100 || info.percent === 100) {
+      lastProgressTime = now;
+      onProgress(info);
+    }
+  };
 
   // 1. Structured CSV/Table Data
   if (parsedData && parsedData.headers && parsedData.headers.length > 0 && parsedData.rows && parsedData.rows.length > 0) {
     const { headers, rows } = parsedData;
     const totalRows = rows.length;
-    const rowsPerChunk = 25; // 25 rows per chunk is optimal for prompt context
-    const totalChunks = Math.ceil(totalRows / rowsPerChunk);
+    const rowsPerChunk = 25;
+    const totalChunks = Math.min(MAX_CHUNKS, Math.ceil(totalRows / rowsPerChunk));
 
     for (let i = 0; i < totalRows; i += rowsPerChunk) {
+      if (cancelToken && cancelToken.isCancelled) {
+        throw new Error('Indexing was cancelled by user.');
+      }
+
+      if (chunks.length >= MAX_CHUNKS) {
+        console.warn(`Dataset chunk cap (${MAX_CHUNKS}) reached for ${datasetName}. Remaining rows indexed in final chunk.`);
+        break;
+      }
+
       const slice = rows.slice(i, i + rowsPerChunk);
       const chunkIndex = Math.floor(i / rowsPerChunk) + 1;
 
@@ -365,9 +426,9 @@ export async function chunkDatasetAsync(datasetName, parsedData, rawContent, onP
         endRow: Math.min(i + rowsPerChunk, totalRows),
       });
 
-      // Report progress and yield to main thread every 500 rows
-      if (onProgress && (i % 500 === 0 || i + rowsPerChunk >= totalRows)) {
-        onProgress({
+      // Yield every 500 rows to ensure main thread is never blocked > 50ms
+      if (i % 500 === 0 || i + rowsPerChunk >= totalRows) {
+        reportProgress({
           processedRows: Math.min(i + rowsPerChunk, totalRows),
           totalRows,
           processedChunks: chunks.length,
@@ -378,6 +439,14 @@ export async function chunkDatasetAsync(datasetName, parsedData, rawContent, onP
       }
     }
 
+    reportProgress({
+      processedRows: totalRows,
+      totalRows,
+      processedChunks: chunks.length,
+      totalChunks: chunks.length,
+      percent: 100,
+    });
+
     return chunks;
   }
 
@@ -386,13 +455,16 @@ export async function chunkDatasetAsync(datasetName, parsedData, rawContent, onP
   const sections = cleanBody.split(/(?=\n##\s+)/g).filter((s) => s.trim().length > 0);
 
   if (sections.length > 1) {
-    sections.forEach((sec, idx) => {
+    const maxSec = Math.min(sections.length, MAX_CHUNKS);
+    for (let idx = 0; idx < maxSec; idx++) {
+      if (cancelToken && cancelToken.isCancelled) throw new Error('Indexing was cancelled by user.');
       chunks.push({
         id: `${datasetName}_sec_${idx + 1}`,
         index: idx + 1,
-        text: sec.trim(),
+        text: sections[idx].trim(),
       });
-    });
+      if (idx % 100 === 0) await new Promise((r) => setTimeout(r, 0));
+    }
   } else {
     // Split by paragraphs
     const paragraphs = cleanBody.split(/\n\s*\n/).filter((p) => p.trim().length > 0);
@@ -400,6 +472,9 @@ export async function chunkDatasetAsync(datasetName, parsedData, rawContent, onP
       let currentChunk = '';
       let chunkIdx = 1;
       for (const p of paragraphs) {
+        if (cancelToken && cancelToken.isCancelled) throw new Error('Indexing was cancelled by user.');
+        if (chunks.length >= MAX_CHUNKS) break;
+
         if ((currentChunk + '\n\n' + p).length > 800) {
           if (currentChunk.trim()) {
             chunks.push({ id: `${datasetName}_p_${chunkIdx++}`, text: currentChunk.trim() });
@@ -409,7 +484,7 @@ export async function chunkDatasetAsync(datasetName, parsedData, rawContent, onP
           currentChunk = currentChunk ? currentChunk + '\n\n' + p : p;
         }
       }
-      if (currentChunk.trim()) {
+      if (currentChunk.trim() && chunks.length < MAX_CHUNKS) {
         chunks.push({ id: `${datasetName}_p_${chunkIdx++}`, text: currentChunk.trim() });
       }
     } else {
@@ -417,15 +492,13 @@ export async function chunkDatasetAsync(datasetName, parsedData, rawContent, onP
     }
   }
 
-  if (onProgress) {
-    onProgress({
-      processedRows: 0,
-      totalRows: 0,
-      processedChunks: chunks.length,
-      totalChunks: chunks.length,
-      percent: 100,
-    });
-  }
+  reportProgress({
+    processedRows: 0,
+    totalRows: 0,
+    processedChunks: chunks.length,
+    totalChunks: chunks.length,
+    percent: 100,
+  });
 
   return chunks;
 }

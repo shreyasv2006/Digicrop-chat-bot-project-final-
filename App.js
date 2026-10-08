@@ -15,7 +15,7 @@ import { COLORS } from './src/constants/theme';
 import Sidebar from './src/components/Sidebar';
 import Header from './src/components/Header';
 import AppDialogContainer from './src/components/AppDialogContainer';
-import { alertDialog } from './src/services/dialogService';
+import { alertDialog, showToast } from './src/services/dialogService';
 import { injectWebFonts } from './src/utils/injectWebFonts';
 import datasetService from './src/services/datasetService';
 import {
@@ -128,7 +128,18 @@ export default function App() {
   }, [activeProfileIdState]);
 
   useEffect(() => {
+    if (typeof document !== 'undefined') {
+      document.title = 'DigiCrop AI';
+    }
     injectWebFonts();
+    // Recovery check: cleanup any unfinished/indexing datasets from prior session
+    if (datasetService && typeof datasetService.cleanupUnfinishedDatasets === 'function') {
+      datasetService.cleanupUnfinishedDatasets().then((cleaned) => {
+        if (cleaned > 0) {
+          showToast('Removed an unfinished dataset from a previous session', 'info');
+        }
+      }).catch(() => {});
+    }
     migrateFromLocalStorage().then(() => {
       setProfiles(getProfiles());
       setActiveProfileIdState(getActiveProfileId());
