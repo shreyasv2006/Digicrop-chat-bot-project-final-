@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, StyleSheet, Platform, LayoutAnimation, UIManager } from 'react-native';
+import { View, StyleSheet, Platform, LayoutAnimation, UIManager, TouchableOpacity } from 'react-native';
 import WelcomeSection from '../components/WelcomeSection';
 import QuickActionCards from '../components/QuickActionCards';
 import ChatInterface from '../components/ChatInterface';

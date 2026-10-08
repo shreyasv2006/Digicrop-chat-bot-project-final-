@@ -6,6 +6,7 @@ import datasetService from '../services/datasetService';
 import { getDetectedFieldsString, clearAllSavedConversations } from '../services/datasetData';
 import { clearAllChats } from '../services/chatStorage';
 import { confirmDialog, alertDialog, promptDialog, showToast } from '../services/dialogService';
+import { BUILD_ID } from '../constants/buildInfo';
 
 const PROFILE_STORAGE_KEY = 'digicrop_user_profile';
 const CHAT_PREFS_KEY = 'digicrop_chat_preferences';
@@ -340,6 +341,12 @@ export default function Settings({ theme, isDarkMode, toggleTheme, onOpenUploadM
         <View style={styles.infoRow}>
           <Text style={[styles.infoLabel, { color: theme.textSecondary }]}>Application Name</Text>
           <Text style={[styles.infoValue, { color: theme.text }]}>DigiCrop AI Web App</Text>
+        </View>
+        <View style={[styles.divider, { backgroundColor: theme.border }]} />
+
+        <View style={styles.infoRow}>
+          <Text style={[styles.infoLabel, { color: theme.textSecondary }]}>Build Version</Text>
+          <Text style={[styles.infoValue, { color: theme.text }]}>Build: {BUILD_ID}</Text>
         </View>
         <View style={[styles.divider, { backgroundColor: theme.border }]} />
 

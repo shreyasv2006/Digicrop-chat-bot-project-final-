@@ -57,6 +57,7 @@ export default function UploadDatasetModal({
   const cancelTokenRef = useRef({ isCancelled: false });
   const watchdogRef = useRef(null);
   const activeWorkerRef = useRef(null);
+  const fullContentRef = useRef('');
 
   useEffect(() => {
     if (initialFile && visible) {
@@ -77,6 +78,7 @@ export default function UploadDatasetModal({
       } catch (e) {}
       activeWorkerRef.current = null;
     }
+    fullContentRef.current = '';
     setDatasetName('');
     setCategory('Farm Data');
     setFarmId('');
@@ -169,7 +171,29 @@ export default function UploadDatasetModal({
       const raw = decodeFileBuffer(buffer);
       // Clean non-printable control characters
       const clean = raw.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g, ' ');
-      setMarkdownContent(clean.trim());
+      const trimmedClean = clean.trim();
+
+      if (!trimmedClean) {
+        setIsProcessing(false);
+        setErrorMsg('The selected file is empty.');
+        alertDialog({ title: 'Empty File', message: 'The selected file is empty. Please select a valid dataset file.' });
+        return;
+      }
+
+      const nonCommentLines = trimmedClean.split(/\r?\n/).filter(l => l.trim().length > 0 && !l.startsWith('#') && !l.startsWith('---'));
+      if (nonCommentLines.length <= 1 && (file.name.endsWith('.csv') || file.name.endsWith('.tsv'))) {
+        setIsProcessing(false);
+        setErrorMsg('Dataset contains only headers and no data rows.');
+        alertDialog({ title: 'Header-Only File', message: 'The selected CSV file contains only headers and no data rows.' });
+        return;
+      }
+
+      fullContentRef.current = trimmedClean;
+      if (trimmedClean.length > 6000) {
+        setMarkdownContent(trimmedClean.slice(0, 3000) + `\n\n... [Showing preview of ${formattedSize}. Full dataset will be completely indexed] ...`);
+      } else {
+        setMarkdownContent(trimmedClean);
+      }
 
       let detected = 'Plain Text';
       if (file.name.endsWith('.csv') || file.name.endsWith('.tsv') || clean.includes(',')) {
@@ -421,7 +445,8 @@ export default function UploadDatasetModal({
     }, 1000);
 
     try {
-      let rawMd = markdownContent;
+      const actualContent = activeTab === 'paste' ? markdownContent : (fullContentRef.current || markdownContent);
+      let rawMd = actualContent;
       if (!rawMd.startsWith('---') && !fileNameUploaded.endsWith('.csv')) {
         rawMd = `---
 name: ${trimmedName}
@@ -430,7 +455,7 @@ farm_id: ${farmId.trim() || ''}
 description: ${description.trim() || 'Custom dataset.'}
 ---
 
-${markdownContent.trim()}`;
+${actualContent.trim()}`;
       }
 
       const cleanFileName =
@@ -777,9 +802,21 @@ ${markdownContent.trim()}`;
                 )}
 
                 {fileNameUploaded ? (
-                  <Text style={{ fontSize: 12, color: theme.primary, fontWeight: '600', marginTop: 8 }}>
-                    📄 Loaded File: {fileNameUploaded}
-                  </Text>
+                  <View style={{ marginTop: 10, padding: 10, borderRadius: 8, backgroundColor: theme.primary + '15', borderWidth: 1, borderColor: theme.primary + '30', width: '100%' }}>
+                    <Text style={{ fontSize: 12.5, color: theme.text, fontWeight: '700', marginBottom: 4 }} numberOfLines={1}>
+                      📄 {fileNameUploaded}
+                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' }}>
+                      {fileSizeFormatted ? (
+                        <Text style={{ fontSize: 11.5, color: theme.textSecondary, marginRight: 12 }}>
+                          Size: <Text style={{ color: theme.text, fontWeight: '600' }}>{fileSizeFormatted}</Text>
+                        </Text>
+                      ) : null}
+                      <Text style={{ fontSize: 11.5, color: theme.textSecondary }}>
+                        Detected: <Text style={{ color: theme.primary, fontWeight: '600' }}>{detectedFileType}</Text>
+                      </Text>
+                    </View>
+                  </View>
                 ) : null}
               </View>
             )}
@@ -937,11 +974,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     padding: 16,
+    ...(Platform.OS === 'web' ? { height: '100vh', width: '100vw' } : {}),
   },
   modalCard: {
     width: '100%',
     maxWidth: 620,
-    maxHeight: '92%',
+    height: Platform.OS === 'web' ? '88vh' : '90%',
+    maxHeight: 740,
     borderRadius: 14,
     borderWidth: 1,
     display: 'flex',

@@ -17,6 +17,7 @@ import Header from './src/components/Header';
 import AppDialogContainer from './src/components/AppDialogContainer';
 import { alertDialog, showToast } from './src/services/dialogService';
 import { injectWebFonts } from './src/utils/injectWebFonts';
+import { BUILD_ID } from './src/constants/buildInfo';
 import datasetService from './src/services/datasetService';
 import {
   getAllChats,
@@ -128,6 +129,7 @@ export default function App() {
   }, [activeProfileIdState]);
 
   useEffect(() => {
+    console.log('DigiCrop AI startup - Build:', BUILD_ID);
     if (typeof document !== 'undefined') {
       document.title = 'DigiCrop AI';
     }
@@ -530,9 +532,7 @@ export default function App() {
           visible={uploadModalVisible}
           onClose={() => setUploadModalVisible(false)}
           theme={theme}
-          onDatasetAdded={(newDs) => {
-            datasetService.notifyListeners();
-          }}
+          onDatasetAdded={(newDs) => {}}
         />
 
         {/* Global In-App Dialog & Toast Container */}

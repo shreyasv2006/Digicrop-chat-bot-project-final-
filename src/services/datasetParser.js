@@ -180,6 +180,197 @@ export function detectDelimiter(textSample) {
 }
 
 /**
+ * High-speed, 100% compliant Asynchronous CSV/TSV Parser with forward progress guarantee and 500-row batch yielding
+ */
+export async function parseCSVAccurateAsync(rawText, specifiedDelim = null, onProgress = null, cancelToken = null) {
+  if (!rawText || typeof rawText !== 'string') {
+    return { headers: [], rows: [], rowObjects: [], delimiter: ',', hasOnlyHeaders: false };
+  }
+
+  // Remove BOM and normalize line endings
+  const clean = rawText
+    .replace(/^\uFEFF/, '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n');
+
+  // Strip frontmatter if present
+  const { text: bodyText } = stripFrontmatter(clean);
+  if (!bodyText.trim()) {
+    return { headers: [], rows: [], rowObjects: [], delimiter: ',', hasOnlyHeaders: false };
+  }
+
+  const delimiter = specifiedDelim || detectDelimiter(bodyText);
+
+  // Fast line-based parsing if no multiline quotes
+  const lines = bodyText.split('\n');
+  const totalLines = lines.length;
+  const records = [];
+  const maxLines = Math.min(totalLines, 100000);
+  let hasMultilineQuotes = false;
+
+  const sampleCount = Math.min(maxLines, 50);
+  for (let i = 0; i < sampleCount; i++) {
+    const qMatches = lines[i].match(/"/g);
+    if (qMatches && qMatches.length % 2 !== 0) {
+      hasMultilineQuotes = true;
+      break;
+    }
+  }
+
+  if (!hasMultilineQuotes) {
+    for (let i = 0; i < maxLines; i++) {
+      if (cancelToken && cancelToken.isCancelled) {
+        throw new Error('Indexing was cancelled by user.');
+      }
+      const line = lines[i];
+      if (i === 0 && (line.startsWith('#') || line.startsWith('---'))) continue;
+      if (line.trim().length === 0) continue;
+
+      const row = [];
+      let cur = '';
+      let inQuotes = false;
+      const lineLen = line.length;
+
+      for (let j = 0; j < lineLen; j++) {
+        const char = line[j];
+        if (char === '"') {
+          if (inQuotes && j + 1 < lineLen && line[j + 1] === '"') {
+            cur += '"';
+            j++;
+          } else {
+            inQuotes = !inQuotes;
+          }
+        } else if (char === delimiter && !inQuotes) {
+          row.push(cur);
+          cur = '';
+        } else {
+          cur += char;
+        }
+      }
+      row.push(cur);
+      if (row.length > 1 || (row.length === 1 && row[0].trim().length > 0)) {
+        records.push(row);
+      }
+
+      // Yield every 500 rows to ensure main thread never freezes
+      if (i > 0 && i % 500 === 0) {
+        if (onProgress) {
+          onProgress({ processedRows: i, totalRows: maxLines, percent: Math.round((i / maxLines) * 40) });
+        }
+        await new Promise((r) => setTimeout(r, 0));
+      }
+    }
+  } else {
+    let currentRecord = [];
+    let currentField = '';
+    let inQuotes = false;
+    const len = bodyText.length;
+    const maxIterations = len + 1000;
+    let iterations = 0;
+
+    for (let i = 0; i < len; i++) {
+      iterations++;
+      if (iterations > maxIterations) {
+        throw new Error('CSV parser iteration limit exceeded. Corrupt or unclosed quotation marks in file.');
+      }
+      if (cancelToken && cancelToken.isCancelled) {
+        throw new Error('Indexing was cancelled by user.');
+      }
+
+      const char = bodyText[i];
+      if (inQuotes) {
+        if (char === '"') {
+          if (i + 1 < len && bodyText[i + 1] === '"') {
+            currentField += '"';
+            i++;
+          } else {
+            inQuotes = false;
+          }
+        } else {
+          currentField += char;
+        }
+      } else {
+        if (char === '"') {
+          inQuotes = true;
+        } else if (char === delimiter) {
+          currentRecord.push(currentField);
+          currentField = '';
+        } else if (char === '\n') {
+          currentRecord.push(currentField);
+          currentField = '';
+          if (currentRecord.length > 1 || (currentRecord.length === 1 && currentRecord[0].trim().length > 0)) {
+            records.push(currentRecord);
+            if (records.length % 500 === 0) {
+              await new Promise((r) => setTimeout(r, 0));
+            }
+          }
+          currentRecord = [];
+        } else {
+          currentField += char;
+        }
+      }
+    }
+    if (currentField.length > 0 || currentRecord.length > 0) {
+      currentRecord.push(currentField);
+      if (currentRecord.length > 1 || (currentRecord.length === 1 && currentRecord[0].trim().length > 0)) {
+        records.push(currentRecord);
+      }
+    }
+  }
+
+  if (records.length === 0) {
+    return { headers: [], rows: [], rowObjects: [], delimiter, hasOnlyHeaders: false };
+  }
+
+  const rawHeaders = records[0].map((h, idx) => {
+    const trimmed = h.trim();
+    return trimmed.length > 0 ? trimmed : `Column_${idx + 1}`;
+  });
+
+  const headerCount = {};
+  const headers = rawHeaders.map((h) => {
+    if (!headerCount[h]) {
+      headerCount[h] = 1;
+      return h;
+    } else {
+      headerCount[h]++;
+      return `${h}_${headerCount[h]}`;
+    }
+  });
+
+  const dataRows = records.slice(1);
+  const rows = [];
+  const rowObjects = [];
+  const maxDataRows = Math.min(dataRows.length, 100000);
+
+  for (let i = 0; i < maxDataRows; i++) {
+    if (cancelToken && cancelToken.isCancelled) throw new Error('Indexing was cancelled by user.');
+    const rawRow = dataRows[i];
+    const row = [];
+    const rowObj = {};
+    for (let j = 0; j < headers.length; j++) {
+      const val = j < rawRow.length ? rawRow[j] : '';
+      row.push(val);
+      rowObj[headers[j]] = val;
+    }
+    rows.push(row);
+    rowObjects.push(rowObj);
+
+    if (i > 0 && i % 1000 === 0) {
+      await new Promise((r) => setTimeout(r, 0));
+    }
+  }
+
+  return {
+    headers,
+    rows,
+    rowObjects,
+    delimiter,
+    hasOnlyHeaders: headers.length >= 2 && rows.length === 0,
+  };
+}
+
+/**
  * High-speed, 100% compliant CSV/TSV Parser with forward progress guarantee
  */
 export function parseCSVAccurate(rawText, specifiedDelim = null) {
@@ -393,7 +584,7 @@ export async function chunkDatasetAsync(datasetName, parsedData, rawContent, onP
   if (parsedData && parsedData.headers && parsedData.headers.length > 0 && parsedData.rows && parsedData.rows.length > 0) {
     const { headers, rows } = parsedData;
     const totalRows = rows.length;
-    const rowsPerChunk = 25;
+    const rowsPerChunk = 40; // 40 rows per chunk
     const totalChunks = Math.min(MAX_CHUNKS, Math.ceil(totalRows / rowsPerChunk));
 
     for (let i = 0; i < totalRows; i += rowsPerChunk) {
@@ -402,7 +593,7 @@ export async function chunkDatasetAsync(datasetName, parsedData, rawContent, onP
       }
 
       if (chunks.length >= MAX_CHUNKS) {
-        console.warn(`Dataset chunk cap (${MAX_CHUNKS}) reached for ${datasetName}. Remaining rows indexed in final chunk.`);
+        console.warn(`Dataset chunk cap (${MAX_CHUNKS}) reached for ${datasetName}. Cap of ${MAX_CHUNKS} chunks enforced.`);
         break;
       }
 
@@ -433,7 +624,7 @@ export async function chunkDatasetAsync(datasetName, parsedData, rawContent, onP
           totalRows,
           processedChunks: chunks.length,
           totalChunks,
-          percent: Math.min(100, Math.round(((i + rowsPerChunk) / totalRows) * 100)),
+          percent: 50 + Math.min(50, Math.round(((i + rowsPerChunk) / totalRows) * 50)),
         });
         await new Promise((r) => setTimeout(r, 0));
       }

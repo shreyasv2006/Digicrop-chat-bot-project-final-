@@ -6,6 +6,7 @@
 import { getBuiltinDatasets, parseFrontMatter } from '../utils/ragEngine.js';
 import {
   parseCSVAccurate,
+  parseCSVAccurateAsync,
   parseMarkdownTable,
   chunkDatasetAsync,
   generateSafeDatasetId,
@@ -241,40 +242,33 @@ class DatasetService {
   }
 
   getAllDatasets() {
-    return [...this.customDatasets].map(d => {
-      const fullText = d.raw || d.content || '';
+    return this.customDatasets.map(d => {
       const source = d.sourceLabel || (d.isPasted ? 'Pasted' : 'Uploaded');
-      const farmIds = d.detectedFarmIds || extractFarmIdsFromContent(fullText + ' ' + (d.farmId || ''));
-      const chunkCount = d.chunkCount || (d.chunks ? d.chunks.length : countDatasetChunks(fullText));
       return {
         ...d,
-        chunkCount: chunkCount || 1,
+        chunkCount: d.chunkCount || (d.chunks ? d.chunks.length : 1),
         source: source,
-        detectedFarmIds: farmIds,
+        detectedFarmIds: d.detectedFarmIds || (d.farmId ? [d.farmId.toString().toUpperCase()] : []),
+        detectedFields: d.detectedFields || (Array.isArray(d.headers) ? d.headers : []),
       };
     });
   }
 
   getDatasetById(id) {
     if (!id) return null;
-    return this.getAllDatasets().find(d => d.id === id || d.fileName === id || d.name === id) || null;
+    return this.customDatasets.find(d => d.id === id || d.fileName === id || d.name === id) || null;
   }
 
   getLoadedFarmIds() {
     try {
       const set = new Set();
-      const all = this.getAllDatasets();
+      const all = this.customDatasets;
       if (Array.isArray(all)) {
         all.forEach(d => {
           if (d.farmId) set.add(d.farmId.toString().toUpperCase());
           if (Array.isArray(d.detectedFarmIds)) {
             d.detectedFarmIds.forEach(fid => {
               if (fid) set.add(fid.toString().toUpperCase());
-            });
-          }
-          if (Array.isArray(d.rowObjects)) {
-            d.rowObjects.forEach(r => {
-              if (r && r.farmId) set.add(r.farmId.toString().toUpperCase());
             });
           }
         });
@@ -316,20 +310,25 @@ class DatasetService {
     const cleanName = (frontmatter?.name || fileName.replace(/\.[^/.]+$/, '')).trim().toUpperCase();
 
     // Check if structured CSV/TSV or Markdown table
-    let parsedData = parseCSVAccurate(cleanBody);
+    const isCsvExtension = /\.(csv|tsv)$/i.test(fileName);
+    let parsedData = null;
     let isStructuredCSV = false;
 
-    const isCsvExtension = /\.(csv|tsv)$/i.test(fileName);
-
-    if (parsedData && parsedData.headers.length >= 2) {
-      if (parsedData.rows.length === 0) {
-        if (isCsvExtension) {
-          throw new Error('Dataset contains only headers and no data rows.');
+    // Use async batch parser with yields for CSV
+    if (isCsvExtension || cleanBody.includes(',') || cleanBody.includes('\t') || cleanBody.includes(';')) {
+      parsedData = await parseCSVAccurateAsync(cleanBody, null, onProgress, cancelToken);
+      if (parsedData && parsedData.headers.length >= 2) {
+        if (parsedData.rows.length === 0) {
+          if (isCsvExtension) {
+            throw new Error('Dataset contains only headers and no data rows.');
+          }
+        } else {
+          isStructuredCSV = true;
         }
-      } else {
-        isStructuredCSV = true;
       }
-    } else {
+    }
+
+    if (!isStructuredCSV) {
       const mdTable = parseMarkdownTable(cleanBody);
       if (mdTable && mdTable.headers.length >= 2) {
         if (mdTable.rows.length === 0) {
@@ -354,8 +353,26 @@ class DatasetService {
       // Asynchronously chunk the dataset with progress reporting and yielding
       const chunks = await chunkDatasetAsync(cleanName, isStructuredCSV ? parsedData : null, cleanBody, onProgress, cancelToken);
 
-      const extractedFarms = extractFarmIdsFromContent(rawText + ' ' + (frontmatter?.farm_id || ''));
-      const detectedFarm = frontmatter?.farm_id || (extractedFarms.length > 0 ? extractedFarms[0] : null);
+      // Fast farm ID detection without scanning entire multi-megabyte string
+      let detectedFarm = frontmatter?.farm_id || null;
+      let extractedFarms = [];
+      if (!detectedFarm && isStructuredCSV && parsedData?.rowObjects?.length > 0) {
+        const checkLimit = Math.min(parsedData.rowObjects.length, 50);
+        for (let i = 0; i < checkLimit; i++) {
+          const r = parsedData.rowObjects[i];
+          if (r.farmId || r.farm_id || r.farm) {
+            detectedFarm = (r.farmId || r.farm_id || r.farm).toString().toUpperCase();
+            extractedFarms = [detectedFarm];
+            break;
+          }
+        }
+      }
+      if (!detectedFarm) {
+        extractedFarms = extractFarmIdsFromContent(rawText.slice(0, 10000) + ' ' + (frontmatter?.farm_id || ''));
+        detectedFarm = frontmatter?.farm_id || (extractedFarms.length > 0 ? extractedFarms[0] : null);
+      }
+
+      const detectedFields = isStructuredCSV ? parsedData.headers : [];
 
       const newDataset = {
         id: cleanId,
@@ -363,6 +380,8 @@ class DatasetService {
         name: cleanName,
         category: frontmatter?.category || 'Farm Data',
         farmId: detectedFarm,
+        detectedFarmIds: extractedFarms,
+        detectedFields: detectedFields,
         crop: frontmatter?.crop || null,
         description: frontmatter?.description || `Custom dataset (${fileName}).`,
         content: cleanBody,

@@ -209,11 +209,17 @@ export function parseKVToRecords(rawText) {
   return records;
 }
 
+let _realFarmsCacheKey = '';
+let _cachedRealFarms = [];
+
 /**
- * Parse any dataset into normalized data rows
+ * Parse any dataset into normalized data rows with caching
  */
 export function extractNormalizedRows(dataset) {
   if (!dataset) return { rows: [], detectedFields: [], rawRowCount: 0 };
+  if (dataset._normalizedRowsCache) {
+    return dataset._normalizedRowsCache;
+  }
 
   let rawRows = [];
   if (Array.isArray(dataset.rowObjects) && dataset.rowObjects.length > 0) {
@@ -239,35 +245,60 @@ export function extractNormalizedRows(dataset) {
   }
 
   const detectedFieldSet = new Set();
-  const normalizedRows = [];
-
-  rawRows.forEach(r => {
-    const norm = {};
-    Object.keys(r).forEach(k => {
-      const val = r[k];
-      const stdField = mapKeyToStandardField(k);
-      if (stdField) {
-        detectedFieldSet.add(k.trim());
-        norm[stdField] = val;
-      } else if (k.trim().length > 0) {
-        detectedFieldSet.add(k.trim());
-      }
-      norm[k.trim()] = val;
+  if (Array.isArray(dataset.headers) && dataset.headers.length > 0) {
+    dataset.headers.forEach(h => {
+      if (h && h.trim()) detectedFieldSet.add(h.trim());
     });
-    normalizedRows.push(norm);
-  });
+  } else if (rawRows.length > 0) {
+    Object.keys(rawRows[0]).forEach(k => {
+      if (k && k.trim()) detectedFieldSet.add(k.trim());
+    });
+  }
 
-  return {
+  const normalizedRows = [];
+  const sampleLimit = Math.min(rawRows.length, 2500);
+
+  for (let i = 0; i < sampleLimit; i++) {
+    const r = rawRows[i];
+    const norm = {};
+    const keys = Object.keys(r);
+    for (let k = 0; k < keys.length; k++) {
+      const key = keys[k];
+      const val = r[key];
+      const stdField = mapKeyToStandardField(key);
+      if (stdField) {
+        detectedFieldSet.add(key.trim());
+        norm[stdField] = val;
+      } else if (key.trim().length > 0) {
+        detectedFieldSet.add(key.trim());
+      }
+      norm[key.trim()] = val;
+    }
+    normalizedRows.push(norm);
+  }
+
+  const res = {
     rows: normalizedRows,
-    detectedFields: Array.from(detectedFieldSet),
-    rawRowCount: rawRows.length,
+    detectedFields: dataset.detectedFields || Array.from(detectedFieldSet),
+    rawRowCount: dataset.rawRowCount || rawRows.length,
   };
+  try {
+    dataset._normalizedRowsCache = res;
+  } catch (e) {}
+
+  return res;
 }
 
 /**
- * Get "Detected fields" summary string for dataset cards
+ * Get "Detected fields" summary string for dataset cards in O(1)
  */
 export function getDetectedFieldsString(dataset) {
+  if (!dataset) return 'Detected: Empty';
+  if (dataset.detectedFields && dataset.detectedFields.length > 0) {
+    const fieldSummary = dataset.detectedFields.slice(0, 6).join(', ') + (dataset.detectedFields.length > 6 ? '...' : '');
+    const rowCount = dataset.rawRowCount || (dataset.rows ? dataset.rows.length : 0);
+    return `Detected: ${fieldSummary}${rowCount > 0 ? ` (${rowCount} rows)` : ''}`;
+  }
   const { detectedFields, rawRowCount } = extractNormalizedRows(dataset);
   if (rawRowCount > 0 && detectedFields.length > 0) {
     const fieldSummary = detectedFields.slice(0, 6).join(', ') + (detectedFields.length > 6 ? '...' : '');
@@ -280,16 +311,24 @@ export function getDetectedFieldsString(dataset) {
 }
 
 /**
- * Extract all real farm profiles and time-series telemetry from user datasets
+ * Extract all real farm profiles and time-series telemetry from user datasets (memoized)
  */
 export function getRealFarms() {
   const datasets = datasetService.getAllDatasets();
+  const cacheKey = datasets.map(d => `${d.id}_${d.rawRowCount || 0}_${d.name || ''}`).join(';');
+  if (_realFarmsCacheKey === cacheKey && _cachedRealFarms.length > 0) {
+    return _cachedRealFarms;
+  }
+
   const farmsMap = new Map();
+  const todayStr = new Date().toISOString().split('T')[0];
 
   datasets.forEach(ds => {
     const { rows } = extractNormalizedRows(ds);
 
-    rows.forEach(r => {
+    const rowLimit = Math.min(rows.length, 1000);
+    for (let i = 0; i < rowLimit; i++) {
+      const r = rows[i];
       const farmId = (r.farmId || ds.farmId || ds.name || 'FARM_1').toString().toUpperCase();
       
       if (!farmsMap.has(farmId)) {
@@ -324,17 +363,17 @@ export function getRealFarms() {
       if (r.temperature != null && !isNaN(r.temperature)) f.temperature = parseFloat(r.temperature);
 
       f.timeSeries.push({
-        date: r.date || new Date().toISOString().split('T')[0],
+        date: r.date || todayStr,
         ndvi: r.ndvi != null && !isNaN(r.ndvi) ? parseFloat(r.ndvi) : null,
         soilMoisture: r.soilMoisture != null && !isNaN(r.soilMoisture) ? parseFloat(r.soilMoisture) : null,
         ph: r.ph != null && !isNaN(r.ph) ? parseFloat(r.ph) : null,
-        ec: r.ec != null && !isNaN(r.ec) ? parseFloat(r.ec) : null,
-        temperature: r.temperature != null && !isNaN(r.temperature) ? parseFloat(r.temperature) : null,
       });
-    });
+    }
   });
 
-  return Array.from(farmsMap.values());
+  _cachedRealFarms = Array.from(farmsMap.values());
+  _realFarmsCacheKey = cacheKey;
+  return _cachedRealFarms;
 }
 
 /**
