@@ -146,6 +146,9 @@ class DatasetService {
     this.builtinDatasets = [];
     this.customDatasets = this.loadCustomDatasetsFromStorage();
     this.listeners = [];
+    this.getAllDatasets = this.getAllDatasets.bind(this);
+    this.getLoadedFarmIds = this.getLoadedFarmIds.bind(this);
+    this.getDatasetById = this.getDatasetById.bind(this);
   }
 
   subscribe(listener) {

@@ -2,13 +2,22 @@ import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SIZES } from '../constants/theme';
-import { datasetService } from '../services/datasetService';
+import { datasetService, getLoadedFarmIds } from '../services/datasetService';
 
 export default function QuickActionCards({ theme, onSelectQuestion }) {
-  const rawFarmIds = typeof datasetService?.getLoadedFarmIds === 'function'
-    ? datasetService.getLoadedFarmIds()
-    : [];
-  const farmIds = Array.isArray(rawFarmIds) ? rawFarmIds : [];
+  const { width } = useWindowDimensions();
+  
+  let farmIds = [];
+  try {
+    if (typeof getLoadedFarmIds === 'function') {
+      farmIds = getLoadedFarmIds() || [];
+    } else if (typeof datasetService?.getLoadedFarmIds === 'function') {
+      farmIds = datasetService.getLoadedFarmIds() || [];
+    }
+  } catch (err) {
+    farmIds = [];
+  }
+  if (!Array.isArray(farmIds)) farmIds = [];
 
   const getColCount = () => {
     if (width < 600) return 1;
