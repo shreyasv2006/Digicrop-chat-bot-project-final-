@@ -167,10 +167,10 @@ export function preCheckUserQuery(userQuery, availableDatasets, selectedDatasetI
   if (switchMatch) {
     const rawTarget = switchMatch[1].trim().toLowerCase();
     const foundDs = availableDatasets.find(d => 
-      d.id.toLowerCase() === rawTarget ||
-      d.fileName.toLowerCase().includes(rawTarget) ||
-      d.name.toLowerCase().includes(rawTarget) ||
-      (d.farmId && d.farmId.toLowerCase() === rawTarget)
+      (d?.id && d.id.toLowerCase() === rawTarget) ||
+      (d?.fileName && d.fileName.toLowerCase().includes(rawTarget)) ||
+      (d?.name && d.name.toLowerCase().includes(rawTarget)) ||
+      (d?.farmId && d.farmId.toLowerCase() === rawTarget)
     );
     if (foundDs) {
       return {

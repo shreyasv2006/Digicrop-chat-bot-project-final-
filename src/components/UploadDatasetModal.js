@@ -58,6 +58,7 @@ export default function UploadDatasetModal({
   const watchdogRef = useRef(null);
   const activeWorkerRef = useRef(null);
   const fullContentRef = useRef('');
+  const lastUiUpdateRef = useRef(0);
 
   useEffect(() => {
     if (initialFile && visible) {
@@ -165,7 +166,6 @@ export default function UploadDatasetModal({
       : `${Math.max(1, Math.round(file.size / 1024))} KB`;
     setFileSizeFormatted(formattedSize);
 
-    setIsProcessing(true);
     try {
       const buffer = await file.arrayBuffer();
       const raw = decodeFileBuffer(buffer);
@@ -174,15 +174,15 @@ export default function UploadDatasetModal({
       const trimmedClean = clean.trim();
 
       if (!trimmedClean) {
-        setIsProcessing(false);
         setErrorMsg('The selected file is empty.');
         alertDialog({ title: 'Empty File', message: 'The selected file is empty. Please select a valid dataset file.' });
         return;
       }
 
-      const nonCommentLines = trimmedClean.split(/\r?\n/).filter(l => l.trim().length > 0 && !l.startsWith('#') && !l.startsWith('---'));
+      // Check header-only using first 4KB slice instead of splitting entire multi-MB file
+      const sampleSlice = trimmedClean.slice(0, 4096);
+      const nonCommentLines = sampleSlice.split(/\r?\n/).filter(l => l.trim().length > 0 && !l.startsWith('#') && !l.startsWith('---'));
       if (nonCommentLines.length <= 1 && (file.name.endsWith('.csv') || file.name.endsWith('.tsv'))) {
-        setIsProcessing(false);
         setErrorMsg('Dataset contains only headers and no data rows.');
         alertDialog({ title: 'Header-Only File', message: 'The selected CSV file contains only headers and no data rows.' });
         return;
@@ -196,20 +196,19 @@ export default function UploadDatasetModal({
       }
 
       let detected = 'Plain Text';
-      if (file.name.endsWith('.csv') || file.name.endsWith('.tsv') || clean.includes(',')) {
+      if (file.name.endsWith('.csv') || file.name.endsWith('.tsv') || sampleSlice.includes(',')) {
         detected = 'Structured CSV Telemetry';
-      } else if (file.name.endsWith('.md') || clean.includes('|')) {
+      } else if (file.name.endsWith('.md') || sampleSlice.includes('|')) {
         detected = 'Markdown Document';
       }
       setDetectedFileType(detected);
 
-      const farmMatch = clean.match(/farm_id:\s*(F[0-9]{3}|F00[0-9])|\bF[0-9]{3}\b|\bF00[0-9]\b/i);
+      // Fast regex search on first 10KB slice
+      const farmMatch = sampleSlice.match(/farm_id:\s*(F[0-9]{3}|F00[0-9])|\bF[0-9]{3}\b|\bF00[0-9]\b/i);
       if (farmMatch && !farmId) {
         setFarmId((farmMatch[1] || farmMatch[0]).toUpperCase());
       }
-      setIsProcessing(false);
     } catch (err) {
-      setIsProcessing(false);
       setErrorMsg('Failed to read file: ' + err.message);
     }
   };
@@ -472,7 +471,11 @@ ${actualContent.trim()}`;
         cancelToken,
         onProgress: (p) => {
           lastProgressTimestamp = Date.now();
-          setIndexProgress(p);
+          const now = Date.now();
+          if (now - lastUiUpdateRef.current >= 100 || p.percent === 100) {
+            lastUiUpdateRef.current = now;
+            setIndexProgress(p);
+          }
         },
       });
 
@@ -665,10 +668,12 @@ ${actualContent.trim()}`;
                       ? `Processing Rows (${indexProgress.processedRows.toLocaleString()} / ${indexProgress.totalRows.toLocaleString()})`
                       : indexProgress && indexProgress.processedChunks > 0
                       ? `Chunking Dataset (${indexProgress.processedChunks} chunks)`
+                      : indexProgress && indexProgress.percent > 0
+                      ? `Indexing Telemetry (${indexProgress.percent}%)`
                       : 'Preparing Dataset...'}
                   </Text>
                   <Text style={[styles.progressPercentText, { color: theme.primary }]}>
-                    {indexProgress ? indexProgress.percent : 10}%
+                    {indexProgress && indexProgress.percent != null ? indexProgress.percent : 5}%
                   </Text>
                 </View>
 
@@ -676,7 +681,7 @@ ${actualContent.trim()}`;
                   <View
                     style={[
                       styles.progressBarFill,
-                      { width: `${Math.max(5, indexProgress ? indexProgress.percent : 10)}%`, backgroundColor: theme.primary },
+                      { width: `${Math.max(5, indexProgress && indexProgress.percent != null ? indexProgress.percent : 5)}%`, backgroundColor: theme.primary },
                     ]}
                   />
                 </View>

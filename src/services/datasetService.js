@@ -400,8 +400,8 @@ class DatasetService {
       };
 
       const existingIndex = this.customDatasets.findIndex(d =>
-        d.fileName.toLowerCase() === fileName.toLowerCase() ||
-        d.name.toLowerCase() === cleanName.toLowerCase()
+        (d?.fileName && fileName && d.fileName.toLowerCase() === fileName.toLowerCase()) ||
+        (d?.name && cleanName && d.name.toLowerCase() === cleanName.toLowerCase())
       );
 
       if (existingIndex !== -1 && replaceExisting) {
@@ -462,8 +462,8 @@ class DatasetService {
     };
 
     const existingIndex = this.customDatasets.findIndex(d => 
-      d.fileName.toLowerCase() === fileName.toLowerCase() ||
-      d.name.toLowerCase() === cleanName.toLowerCase()
+      (d?.fileName && fileName && d.fileName.toLowerCase() === fileName.toLowerCase()) ||
+      (d?.name && cleanName && d.name.toLowerCase() === cleanName.toLowerCase())
     );
 
     if (existingIndex !== -1) {

@@ -144,7 +144,8 @@ export function stripFrontmatter(text) {
  * Auto-detect delimiter among comma, semicolon, tab, pipe
  */
 export function detectDelimiter(textSample) {
-  const lines = textSample.split(/\r?\n/).filter((l) => l.trim().length > 0 && !l.startsWith('#'));
+  const sample = (textSample || '').slice(0, 4096);
+  const lines = sample.split(/\r?\n/).filter((l) => l.trim().length > 0 && !l.startsWith('#'));
   const candidateDelims = [',', ';', '\t', '|'];
   const scores = { ',': 0, ';': 0, '\t': 0, '|': 0 };
 
@@ -187,11 +188,8 @@ export async function parseCSVAccurateAsync(rawText, specifiedDelim = null, onPr
     return { headers: [], rows: [], rowObjects: [], delimiter: ',', hasOnlyHeaders: false };
   }
 
-  // Remove BOM and normalize line endings
-  const clean = rawText
-    .replace(/^\uFEFF/, '')
-    .replace(/\r\n/g, '\n')
-    .replace(/\r/g, '\n');
+  // Remove BOM if present without cloning full string
+  const clean = rawText.charCodeAt(0) === 0xFEFF ? rawText.slice(1) : rawText;
 
   // Strip frontmatter if present
   const { text: bodyText } = stripFrontmatter(clean);
@@ -202,11 +200,21 @@ export async function parseCSVAccurateAsync(rawText, specifiedDelim = null, onPr
   const delimiter = specifiedDelim || detectDelimiter(bodyText);
 
   // Fast line-based parsing if no multiline quotes
-  const lines = bodyText.split('\n');
+  const lines = bodyText.split(/\r?\n/);
   const totalLines = lines.length;
   const records = [];
   const maxLines = Math.min(totalLines, 100000);
   let hasMultilineQuotes = false;
+  let lastProgressTime = 0;
+
+  const reportProgress = (info) => {
+    if (!onProgress) return;
+    const now = Date.now();
+    if (now - lastProgressTime >= 120 || info.percent === 40 || info.percent === 100) {
+      lastProgressTime = now;
+      onProgress(info);
+    }
+  };
 
   const sampleCount = Math.min(maxLines, 50);
   for (let i = 0; i < sampleCount; i++) {
@@ -226,37 +234,41 @@ export async function parseCSVAccurateAsync(rawText, specifiedDelim = null, onPr
       if (i === 0 && (line.startsWith('#') || line.startsWith('---'))) continue;
       if (line.trim().length === 0) continue;
 
-      const row = [];
-      let cur = '';
-      let inQuotes = false;
-      const lineLen = line.length;
+      let row;
+      if (!line.includes('"')) {
+        row = line.split(delimiter);
+      } else {
+        row = [];
+        let cur = '';
+        let inQuotes = false;
+        const lineLen = line.length;
 
-      for (let j = 0; j < lineLen; j++) {
-        const char = line[j];
-        if (char === '"') {
-          if (inQuotes && j + 1 < lineLen && line[j + 1] === '"') {
-            cur += '"';
-            j++;
+        for (let j = 0; j < lineLen; j++) {
+          const char = line[j];
+          if (char === '"') {
+            if (inQuotes && j + 1 < lineLen && line[j + 1] === '"') {
+              cur += '"';
+              j++;
+            } else {
+              inQuotes = !inQuotes;
+            }
+          } else if (char === delimiter && !inQuotes) {
+            row.push(cur);
+            cur = '';
           } else {
-            inQuotes = !inQuotes;
+            cur += char;
           }
-        } else if (char === delimiter && !inQuotes) {
-          row.push(cur);
-          cur = '';
-        } else {
-          cur += char;
         }
+        row.push(cur);
       }
-      row.push(cur);
+
       if (row.length > 1 || (row.length === 1 && row[0].trim().length > 0)) {
         records.push(row);
       }
 
-      // Yield every 500 rows to ensure main thread never freezes
-      if (i > 0 && i % 500 === 0) {
-        if (onProgress) {
-          onProgress({ processedRows: i, totalRows: maxLines, percent: Math.round((i / maxLines) * 40) });
-        }
+      // Yield every 1000 rows to ensure main thread never freezes
+      if (i > 0 && i % 1000 === 0) {
+        reportProgress({ processedRows: i, totalRows: maxLines, percent: Math.round((i / maxLines) * 40) });
         await new Promise((r) => setTimeout(r, 0));
       }
     }
@@ -301,6 +313,7 @@ export async function parseCSVAccurateAsync(rawText, specifiedDelim = null, onPr
           if (currentRecord.length > 1 || (currentRecord.length === 1 && currentRecord[0].trim().length > 0)) {
             records.push(currentRecord);
             if (records.length % 500 === 0) {
+              reportProgress({ processedRows: records.length, totalRows: maxLines, percent: Math.min(40, Math.round((i / len) * 40)) });
               await new Promise((r) => setTimeout(r, 0));
             }
           }
@@ -308,6 +321,12 @@ export async function parseCSVAccurateAsync(rawText, specifiedDelim = null, onPr
         } else {
           currentField += char;
         }
+      }
+
+      // Yield every 20,000 characters if in long quotes
+      if (i > 0 && i % 20000 === 0) {
+        reportProgress({ processedRows: records.length, totalRows: maxLines, percent: Math.min(40, Math.round((i / len) * 40)) });
+        await new Promise((r) => setTimeout(r, 0));
       }
     }
     if (currentField.length > 0 || currentRecord.length > 0) {
@@ -339,26 +358,18 @@ export async function parseCSVAccurateAsync(rawText, specifiedDelim = null, onPr
   });
 
   const dataRows = records.slice(1);
-  const rows = [];
-  const rowObjects = [];
   const maxDataRows = Math.min(dataRows.length, 100000);
+  const rows = dataRows.slice(0, maxDataRows);
+  const rowObjects = [];
 
-  for (let i = 0; i < maxDataRows; i++) {
-    if (cancelToken && cancelToken.isCancelled) throw new Error('Indexing was cancelled by user.');
-    const rawRow = dataRows[i];
-    const row = [];
+  const previewCount = Math.min(maxDataRows, 1000);
+  for (let i = 0; i < previewCount; i++) {
+    const rawRow = rows[i];
     const rowObj = {};
     for (let j = 0; j < headers.length; j++) {
-      const val = j < rawRow.length ? rawRow[j] : '';
-      row.push(val);
-      rowObj[headers[j]] = val;
+      rowObj[headers[j]] = j < rawRow.length ? rawRow[j] : '';
     }
-    rows.push(row);
     rowObjects.push(rowObj);
-
-    if (i > 0 && i % 1000 === 0) {
-      await new Promise((r) => setTimeout(r, 0));
-    }
   }
 
   return {
@@ -584,7 +595,7 @@ export async function chunkDatasetAsync(datasetName, parsedData, rawContent, onP
   if (parsedData && parsedData.headers && parsedData.headers.length > 0 && parsedData.rows && parsedData.rows.length > 0) {
     const { headers, rows } = parsedData;
     const totalRows = rows.length;
-    const rowsPerChunk = 40; // 40 rows per chunk
+    const rowsPerChunk = totalRows > 2000 ? 100 : 40;
     const totalChunks = Math.min(MAX_CHUNKS, Math.ceil(totalRows / rowsPerChunk));
 
     for (let i = 0; i < totalRows; i += rowsPerChunk) {
@@ -603,11 +614,12 @@ export async function chunkDatasetAsync(datasetName, parsedData, rawContent, onP
       let chunkText = `### Dataset: ${datasetName} (Part ${chunkIndex}/${totalChunks})\n`;
       chunkText += `Columns: [${headers.join(', ')}]\n\n`;
 
-      slice.forEach((row, rIdx) => {
+      const lines = slice.map((row, rIdx) => {
         const rowNum = i + rIdx + 1;
         const rowPairs = headers.map((h, hIdx) => `${h}: ${row[hIdx] ?? 'N/A'}`).join(' | ');
-        chunkText += `Row ${rowNum}: ${rowPairs}\n`;
+        return `Row ${rowNum}: ${rowPairs}`;
       });
+      chunkText += lines.join('\n') + '\n';
 
       chunks.push({
         id: `${datasetName}_chunk_${chunkIndex}`,
@@ -617,8 +629,8 @@ export async function chunkDatasetAsync(datasetName, parsedData, rawContent, onP
         endRow: Math.min(i + rowsPerChunk, totalRows),
       });
 
-      // Yield every 500 rows to ensure main thread is never blocked > 50ms
-      if (i % 500 === 0 || i + rowsPerChunk >= totalRows) {
+      // Yield every 1000 rows to ensure main thread is never blocked > 30ms
+      if (i % 1000 === 0 || i + rowsPerChunk >= totalRows) {
         reportProgress({
           processedRows: Math.min(i + rowsPerChunk, totalRows),
           totalRows,

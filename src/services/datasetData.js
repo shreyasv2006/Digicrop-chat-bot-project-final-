@@ -376,22 +376,32 @@ export function getRealFarms() {
   return _cachedRealFarms;
 }
 
+let _realAlertsCacheKey = '';
+let _cachedRealAlerts = [];
+
 /**
- * Extract all real alert and risk rows from user datasets
+ * Extract all real alert and risk rows from user datasets (memoized)
  */
 export function getRealAlerts() {
   const datasets = datasetService.getAllDatasets();
+  const cacheKey = datasets.map(d => `${d.id}_${d.rawRowCount || 0}`).join(';');
+  if (_realAlertsCacheKey === cacheKey && _cachedRealAlerts.length > 0) {
+    return _cachedRealAlerts;
+  }
+
   const alertsList = [];
 
   datasets.forEach(ds => {
     const { rows } = extractNormalizedRows(ds);
+    const limit = Math.min(rows.length, 1000);
 
-    rows.forEach((r, idx) => {
-      const sev = r.severity || r.status || r.risk || '';
-      const text = JSON.stringify(r);
+    for (let idx = 0; idx < limit; idx++) {
+      const r = rows[idx];
+      const sev = (r.severity || r.status || r.risk || r.alert || '').toString().toUpperCase();
+      const issue = (r.issue || r.condition || r.pestdisease || '').toString().toUpperCase();
       
-      const isCritical = sev.toUpperCase().includes('CRITICAL') || sev.toUpperCase().includes('HIGH') || text.toUpperCase().includes('CRITICAL');
-      const isWarning = sev.toUpperCase().includes('WARN') || sev.toUpperCase().includes('MEDIUM') || text.toUpperCase().includes('WARNING');
+      const isCritical = sev.includes('CRITICAL') || sev.includes('HIGH') || issue.includes('CRITICAL');
+      const isWarning = sev.includes('WARN') || sev.includes('MEDIUM') || issue.includes('WARNING');
 
       if (isCritical || isWarning) {
         alertsList.push({
@@ -403,22 +413,34 @@ export function getRealAlerts() {
           details: r.recommendedaction || r.symptoms || r.description || `Reading: ${r.ndvi || r.soilMoisture || r.temperature || ''}`,
         });
       }
-    });
+    }
   });
 
+  _cachedRealAlerts = alertsList;
+  _realAlertsCacheKey = cacheKey;
   return alertsList;
 }
 
+let _weatherCacheKey = '';
+let _cachedWeather = [];
+
 /**
- * Extract all real weather records from user datasets
+ * Extract all real weather records from user datasets (memoized)
  */
 export function getRealWeatherData() {
   const datasets = datasetService.getAllDatasets();
+  const cacheKey = datasets.map(d => `${d.id}_${d.rawRowCount || 0}`).join(';');
+  if (_weatherCacheKey === cacheKey && _cachedWeather.length > 0) {
+    return _cachedWeather;
+  }
+
   const weatherRows = [];
 
   datasets.forEach(ds => {
     const { rows } = extractNormalizedRows(ds);
-    rows.forEach(r => {
+    const limit = Math.min(rows.length, 1000);
+    for (let i = 0; i < limit; i++) {
+      const r = rows[i];
       if (r.temperature || r.rainfall || r.humidity || r.wind || r.date) {
         weatherRows.push({
           date: r.date || 'Record Date',
@@ -429,9 +451,11 @@ export function getRealWeatherData() {
           rainfall: r.rainfall != null ? `${r.rainfall} mm` : null,
         });
       }
-    });
+    }
   });
 
+  _cachedWeather = weatherRows;
+  _weatherCacheKey = cacheKey;
   return weatherRows;
 }
 
