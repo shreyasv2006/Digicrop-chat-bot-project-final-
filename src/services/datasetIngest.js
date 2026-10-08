@@ -29,12 +29,24 @@ export async function readFileWithEncodingFallback(file) {
 }
 
 export function detectFormatByContent(text) {
-  const lines = text.split('\n').filter(l => l.trim().length > 0).slice(0, 50);
+  // Strip YAML frontmatter
+  let clean = text;
+  if (clean.startsWith('---')) {
+    const end = clean.indexOf('---', 3);
+    if (end !== -1) clean = clean.substring(end + 3);
+  }
+  
+  // Skip titles and empty lines
+  const lines = clean.split('\n').map(l => l.trim()).filter(l => l.length > 0 && !l.startsWith('#')).slice(0, 100);
   if (lines.length === 0) return { type: 'Text', delimiter: null, cols: 0 };
   
   const candidates = [',', ';', '\t', '|'];
   for (const delim of candidates) {
-    const counts = lines.map(l => l.split(delim).length);
+    // Only count lines that actually contain the delimiter
+    const linesWithDelim = lines.filter(l => l.includes(delim));
+    if (linesWithDelim.length === 0) continue;
+
+    const counts = linesWithDelim.map(l => l.split(delim).length);
     const mostCommon = counts.reduce((acc, val) => {
       acc[val] = (acc[val] || 0) + 1;
       return acc;
@@ -49,8 +61,8 @@ export function detectFormatByContent(text) {
       }
     }
     
-    if (maxCols >= 2 && (maxCount / lines.length) >= 0.8) {
-      if (delim === '|' && lines[0].trim().startsWith('|')) {
+    if (maxCols >= 2 && maxCount >= Math.min(3, linesWithDelim.length * 0.5)) {
+      if (delim === '|') {
         return { type: 'Markdown Document', delimiter: '|', cols: maxCols };
       }
       return { type: 'Structured CSV Telemetry', delimiter: delim, cols: maxCols };
@@ -62,7 +74,15 @@ export function detectFormatByContent(text) {
 
 export async function parseRFC4180Batched(text, delimiter, onProgress, cancelToken) {
   let records = [];
-  const lines = text.split('\n');
+  
+  // Strip YAML frontmatter
+  let clean = text;
+  if (clean.startsWith('---')) {
+    const end = clean.indexOf('---', 3);
+    if (end !== -1) clean = clean.substring(end + 3);
+  }
+  
+  const lines = clean.split('\n');
   const maxLines = lines.length;
   
   let batchSize = 2000;
@@ -126,7 +146,10 @@ export async function parseRFC4180Batched(text, delimiter, onProgress, cancelTok
         if (delimiter === '|' && row.length >= 2 && row[0].trim() === '' && row[row.length-1].trim() === '') {
           row = row.slice(1, -1);
         }
-        batchRecords.push(row.map(c => c.trim()));
+        const trimmed = row.map(c => c.trim());
+        if (!(delimiter === '|' && trimmed.every(c => /^[\s-:]+$/.test(c)))) {
+          batchRecords.push(trimmed);
+        }
       }
       progressMade = true;
     }
