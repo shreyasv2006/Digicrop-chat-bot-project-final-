@@ -46,11 +46,12 @@ export default function VegetationIndices({ theme, onOpenUploadModal }) {
             Upload or add a dataset containing NDVI telemetry or satellite vegetation indices to view real canopy coverage and health metrics.
           </Text>
           <TouchableOpacity
-            style={[styles.actionBtn, { backgroundColor: theme.primary }]}
+            style={{ marginTop: 12 }}
             onPress={handleOpenModal}
           >
-            <Ionicons name="add-circle-outline" size={20} color="#FFF" />
-            <Text style={styles.actionBtnText}>+ Add Dataset</Text>
+            <Text style={{ color: theme.primary, textDecorationLine: 'underline', fontSize: 13, fontWeight: '500' }}>
+              Use Add Dataset in the sidebar
+            </Text>
           </TouchableOpacity>
         </View>
 

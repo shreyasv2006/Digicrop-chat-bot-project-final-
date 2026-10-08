@@ -207,7 +207,7 @@ class DatasetService {
     return [...this.customDatasets].map(d => {
       const fullText = d.raw || d.content || '';
       const chunks = countDatasetChunks(fullText);
-      const source = d.isPasted ? 'Pasted' : 'Uploaded';
+      const source = d.sourceLabel || (d.isPasted ? 'Pasted' : 'Uploaded');
       const farmIds = extractFarmIdsFromContent(fullText + ' ' + (d.farmId || ''));
       return {
         ...d,
@@ -233,12 +233,18 @@ class DatasetService {
     return Array.from(set).sort();
   }
 
-  addCustomDataset(rawText, fileName = 'custom_dataset.md', isPasted = false) {
+  addCustomDataset(rawText, fileName = 'custom_dataset.md', isPasted = false, sourceLabel = null) {
     let contentToProcess = rawText;
     const lowerName = fileName.toLowerCase();
 
     if (lowerName.endsWith('.csv')) {
       contentToProcess = convertCSVToMarkdown(rawText, fileName);
+    } else if (sourceLabel === 'OCR' && rawText.includes(',') && rawText.split(/\r?\n/).length > 2) {
+      // Check if CSV-like
+      const firstLine = rawText.split(/\r?\n/)[0];
+      if (firstLine.includes(',') && firstLine.split(',').length >= 2) {
+        contentToProcess = convertCSVToMarkdown(rawText, fileName);
+      }
     }
 
     const { metadata, content } = parseFrontMatter(contentToProcess);
@@ -259,6 +265,7 @@ class DatasetService {
       raw: rawText,
       isCustom: true,
       isPasted: isPasted,
+      sourceLabel: sourceLabel || (isPasted ? 'Pasted' : 'Uploaded'),
       addedAt: new Date().toISOString(),
     };
 

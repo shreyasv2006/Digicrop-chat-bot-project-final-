@@ -40,11 +40,12 @@ export default function WeatherInsights({ theme, onOpenUploadModal }) {
             Upload or add a dataset containing weather logs (date, temperature, rainfall, humidity, wind speed) to view weather insights.
           </Text>
           <TouchableOpacity
-            style={[styles.actionBtn, { backgroundColor: theme.primary }]}
+            style={{ marginTop: 12 }}
             onPress={handleOpenModal}
           >
-            <Ionicons name="add-circle-outline" size={20} color="#FFF" />
-            <Text style={styles.actionBtnText}>+ Add Dataset</Text>
+            <Text style={{ color: theme.primary, textDecorationLine: 'underline', fontSize: 13, fontWeight: '500' }}>
+              Use Add Dataset in the sidebar
+            </Text>
           </TouchableOpacity>
         </View>
 

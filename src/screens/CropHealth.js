@@ -59,11 +59,10 @@ export default function CropHealth({ theme, onNavigate, onOpenUploadModal, onSel
             <Text style={[styles.emptyText, { color: theme.textSecondary }]}>
               No crop health telemetry loaded. Add a dataset to inspect crop growth and alerts.
             </Text>
-            <TouchableOpacity 
-              style={[styles.addBtn, { backgroundColor: theme.primary }]}
-              onPress={onOpenUploadModal}
-            >
-              <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 12 }}>+ Add Dataset</Text>
+            <TouchableOpacity onPress={onOpenUploadModal} style={{ marginTop: 8 }}>
+              <Text style={{ color: theme.primary, textDecorationLine: 'underline', fontSize: 13, fontWeight: '500' }}>
+                Use Add Dataset in the sidebar
+              </Text>
             </TouchableOpacity>
           </View>
         ) : (

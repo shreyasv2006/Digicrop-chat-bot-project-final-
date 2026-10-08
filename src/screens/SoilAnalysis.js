@@ -47,11 +47,12 @@ export default function SoilAnalysis({ theme, onOpenUploadModal }) {
             Upload or add a dataset containing soil telemetry (pH, moisture %, EC, temperature) to view real soil metrics and threshold evaluations.
           </Text>
           <TouchableOpacity
-            style={[styles.actionBtn, { backgroundColor: theme.primary }]}
+            style={{ marginTop: 12 }}
             onPress={handleOpenModal}
           >
-            <Ionicons name="add-circle-outline" size={20} color="#FFF" />
-            <Text style={styles.actionBtnText}>+ Add Dataset</Text>
+            <Text style={{ color: theme.primary, textDecorationLine: 'underline', fontSize: 13, fontWeight: '500' }}>
+              Use Add Dataset in the sidebar
+            </Text>
           </TouchableOpacity>
         </View>
 

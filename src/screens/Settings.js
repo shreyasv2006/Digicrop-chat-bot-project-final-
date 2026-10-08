@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { SIZES } from '../constants/theme';
 import datasetService from '../services/datasetService';
 import { getDetectedFieldsString, clearAllSavedConversations } from '../services/datasetData';
+import { clearAllChats } from '../services/chatStorage';
 
 const PROFILE_STORAGE_KEY = 'digicrop_user_profile';
 const CHAT_PREFS_KEY = 'digicrop_chat_preferences';
@@ -44,7 +45,7 @@ export function saveChatPreferencesToStorage(prefs) {
   } catch (e) {}
 }
 
-export default function Settings({ theme, isDarkMode, toggleTheme, onOpenUploadModal, onResetApp }) {
+export default function Settings({ theme, isDarkMode, toggleTheme, onOpenUploadModal, onResetApp, onChatsCleared, activeProfile }) {
   const [profile, setProfile] = useState(getUserProfileFromStorage());
   const [chatPrefs, setChatPrefs] = useState(getChatPreferencesFromStorage());
   const [datasets, setDatasets] = useState([]);
@@ -127,6 +128,26 @@ export default function Settings({ theme, isDarkMode, toggleTheme, onOpenUploadM
     }
   };
 
+  const handleClearChatHistory = () => {
+    const activeName = activeProfile?.name || profile?.displayName || 'User';
+    const confirmMsg = `Clear all chats for profile '${activeName}'? This action cannot be undone.`;
+
+    const doClear = async () => {
+      await clearAllChats();
+      if (onChatsCleared) onChatsCleared();
+      if (Platform.OS === 'web') alert(`Chat history for profile '${activeName}' cleared!`);
+    };
+
+    if (Platform.OS === 'web') {
+      if (window.confirm(confirmMsg)) doClear();
+    } else {
+      Alert.alert('Clear Profile Chat History', confirmMsg, [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Clear', style: 'destructive', onPress: doClear }
+      ]);
+    }
+  };
+
   const handleResetApp = () => {
     const doReset = () => {
       if (typeof window !== 'undefined' && window.localStorage) {
@@ -164,27 +185,36 @@ export default function Settings({ theme, isDarkMode, toggleTheme, onOpenUploadM
           style={[styles.input, { color: theme.text, backgroundColor: theme.background, borderColor: theme.border }]}
           placeholder="e.g. Ramesh Patil or Agronomist"
           placeholderTextColor={theme.textSecondary}
-          value={profile?.displayName || ''}
+          value={activeProfile?.name || profile?.displayName || ''}
           onChangeText={handleNameChange}
         />
+        <Text style={{ fontSize: 11.5, color: theme.textSecondary, marginTop: 8, fontStyle: 'italic' }}>
+          🔒 Profiles are saved in this browser only. They are not accounts and do not need a password.
+        </Text>
       </View>
 
       {/* Section 2: Datasets Management Table */}
       <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
         <View style={styles.cardHeaderRow}>
           <Text style={[styles.cardTitle, { color: theme.text, marginBottom: 0 }]}>2. Loaded Datasets Management</Text>
-          <TouchableOpacity 
-            style={[styles.addBtn, { backgroundColor: theme.primary }]}
-            onPress={onOpenUploadModal}
-          >
-            <Ionicons name="add-circle-outline" size={14} color="#FFF" style={{ marginRight: 4 }} />
-            <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 12 }}>+ Add Dataset</Text>
+          <TouchableOpacity onPress={onOpenUploadModal}>
+            <Text style={{ color: theme.primary, fontSize: 12, textDecorationLine: 'underline', fontWeight: '600' }}>
+              Use Add Dataset in the sidebar
+            </Text>
           </TouchableOpacity>
         </View>
 
         {datasets.length === 0 ? (
           <View style={styles.emptyContainer}>
-            <Text style={[styles.emptyText, { color: theme.textSecondary }]}>No datasets loaded in storage.</Text>
+            <Text style={[styles.emptyText, { color: theme.textSecondary }]}>
+              No datasets loaded in storage.{' '}
+              <Text 
+                style={{ color: theme.primary, textDecorationLine: 'underline' }}
+                onPress={onOpenUploadModal}
+              >
+                Use Add Dataset in the sidebar
+              </Text>
+            </Text>
           </View>
         ) : (
           <View style={{ marginTop: 12 }}>
@@ -268,6 +298,10 @@ export default function Settings({ theme, isDarkMode, toggleTheme, onOpenUploadM
         </Text>
 
         <View style={styles.privacyBtnRow}>
+          <TouchableOpacity style={[styles.privacyBtn, { backgroundColor: theme.border }]} onPress={handleClearChatHistory}>
+            <Text style={[styles.privacyBtnText, { color: theme.text }]}>Clear Chat History</Text>
+          </TouchableOpacity>
+
           <TouchableOpacity style={[styles.privacyBtn, { backgroundColor: theme.border }]} onPress={handleClearSaved}>
             <Text style={[styles.privacyBtnText, { color: theme.text }]}>Clear Saved Items</Text>
           </TouchableOpacity>

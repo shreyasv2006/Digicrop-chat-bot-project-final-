@@ -22,11 +22,13 @@
     "express": "^5.2.1",
     "fbjs": "^3.0.5",
     "gray-matter": "^4.0.3",
+    "pdfjs-dist": "^6.4.299",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-native": "0.86.2",
     "react-native-safe-area-context": "~5.7.0",
-    "react-native-web": "~0.21.0"
+    "react-native-web": "~0.21.0",
+    "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",

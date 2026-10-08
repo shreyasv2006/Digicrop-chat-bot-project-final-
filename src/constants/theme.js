@@ -4,6 +4,7 @@ export const COLORS = {
     surface: '#FFFFFF',
     surfaceDark: '#F1F5F9',
     cardBg: '#FFFFFF',
+    hoverBg: '#F1F5F9',
     border: '#E2E8F0',
     primary: '#10b981', // Emerald
     primaryDark: '#059669',
@@ -15,19 +16,20 @@ export const COLORS = {
     cardShadow: 'rgba(0, 0, 0, 0.05)',
   },
   dark: {
-    background: '#090D11', // Dark slate bg
-    surface: '#0C1218',    // Header & panel surface
-    surfaceDark: '#0F161E',// Card bg
-    cardBg: '#121A22',
-    border: '#1A2430',
-    primary: '#10b981', // Emerald
+    background: '#080B10', // Page background
+    surface: '#06090D',    // Sidebar background
+    surfaceDark: '#0A0E14',// Header surface
+    cardBg: '#0C1118',     // Cards / surfaces
+    hoverBg: '#121923',    // Hover / elevated / input background
+    border: '#1A222D',     // Borders
+    primary: '#10b981',    // Emerald green accent
     primaryDark: '#059669',
-    accent: '#06b6d4', // Cyan
+    accent: '#06b6d4',     // Cyan
     alertRed: '#ef4444',
     alertAmber: '#f59e0b',
     text: '#F1F5F9',
-    textSecondary: '#94A3B8',
-    cardShadow: 'rgba(0, 0, 0, 0.4)',
+    textSecondary: '#94A3B8', // Muted text passing WCAG AA contrast on dark background
+    cardShadow: 'rgba(0, 0, 0, 0.5)',
   }
 };
 

@@ -1,11 +1,19 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Platform, KeyboardAvoidingView, ActivityIndicator } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TextInput,
+  TouchableOpacity,
+  ScrollView,
+  Platform,
+  KeyboardAvoidingView,
+  ActivityIndicator,
+} from 'react-native';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { SIZES } from '../constants/theme';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import DCLogo from './DCLogo';
 import MarkdownText from './MarkdownText';
-import UploadDatasetModal from './UploadDatasetModal';
 import { datasetService } from '../services/datasetService';
 import { saveConversationToStorage } from '../services/datasetData';
 
@@ -25,23 +33,15 @@ export default function ChatInterface({
   onOpenUploadModal,
 }) {
   const scrollViewRef = useRef();
-  const insets = useSafeAreaInsets();
-  const [modalVisible, setModalVisible] = useState(false);
+  const textareaRef = useRef();
   const [datasetOptions, setDatasetOptions] = useState([]);
   const [allDatasetsCount, setAllDatasetsCount] = useState(0);
-  const [totalChunksCount, setTotalChunksCount] = useState(0);
 
   const refreshDatasetInfo = () => {
     const opts = datasetService.getDatasetSelectorOptions();
     const allDs = datasetService.getAllDatasets();
     setDatasetOptions(opts);
     setAllDatasetsCount(allDs.length);
-
-    let totalChunks = 0;
-    allDs.forEach(d => {
-      totalChunks += (d.chunkCount || 1);
-    });
-    setTotalChunksCount(totalChunks);
   };
 
   useEffect(() => {
@@ -52,139 +52,89 @@ export default function ChatInterface({
     if (messages.length > 0 || isLoading) {
       setTimeout(() => {
         scrollViewRef.current?.scrollToEnd({ animated: true });
-      }, 100);
+      }, 80);
     }
   }, [messages, isLoading]);
 
-  const handleDatasetAdded = (newDataset) => {
-    refreshDatasetInfo();
-    if (onSelectDataset) onSelectDataset(newDataset.id);
+  const hasMessages = messages.length > 0;
+
+  // Web keyboard handler: Enter to send, Shift+Enter for new line
+  const handleKeyDown = (e) => {
+    if (Platform.OS === 'web' && e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      if (inputText.trim() && !isLoading) {
+        onSendMessage();
+      }
+    }
   };
 
-  const isGroundingActive = selectedDatasetId && selectedDatasetId !== 'general';
-
-  // Dynamic Quick Queries based on loaded data
-  const farmIds = datasetService.getLoadedFarmIds();
-  const quickQueries = [];
-  if (farmIds.includes('F001')) {
-    quickQueries.push('What is the NDVI of F001?');
-    quickQueries.push('What is the soil moisture of F001?');
-  }
-  if (farmIds.includes('F004')) {
-    quickQueries.push('What is the status of F004?');
-  }
-  if (farmIds.includes('F001') && farmIds.includes('F004')) {
-    quickQueries.push('Compare F001 and F004 using their datasets.');
-  }
-  quickQueries.push('How does NDVI work?');
-  quickQueries.push('Best irrigation tips');
-
   return (
-    <KeyboardAvoidingView 
-      style={styles.container} 
+    <KeyboardAvoidingView
+      style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      {/* Knowledge Dataset Context Bar */}
-      <View style={[styles.datasetSelectorBar, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}>
-        <View style={styles.selectorHeaderRow}>
-          <Text style={[styles.selectorLabel, { color: theme.textSecondary }]}>
-            KNOWLEDGE DATASET CONTEXT:
-          </Text>
-
-          <TouchableOpacity 
-            style={[styles.uploadBtn, { backgroundColor: theme.primary + '15', borderColor: theme.primary + '40' }]}
-            onPress={() => setModalVisible(true)}
-          >
-            <Ionicons name="cloud-upload-outline" size={13} color={theme.primary} style={{ marginRight: 4 }} />
-            <Text style={[styles.uploadBtnText, { color: theme.primary }]}>+ Add Dataset</Text>
-          </TouchableOpacity>
-        </View>
-
-        <ScrollView 
-          horizontal 
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.datasetHorizontalScroll}
-        >
-          {datasetOptions.map((opt) => {
-            const isActive = selectedDatasetId === opt.id;
-            return (
-              <TouchableOpacity
-                key={opt.id}
-                style={[
-                  styles.datasetPill,
-                  { 
-                    backgroundColor: isActive ? theme.primary : theme.cardBg,
-                    borderColor: isActive ? theme.primary : theme.border,
-                  }
-                ]}
-                onPress={() => onSelectDataset && onSelectDataset(opt.id)}
-              >
-                <Text style={[
-                  styles.datasetPillText,
-                  { color: isActive ? '#FFFFFF' : theme.text, fontWeight: isActive ? '700' : '500' }
-                ]}>
-                  {opt.label}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-      </View>
-
-      {/* Messages Scroll Feed */}
-      <ScrollView 
+      {/* Messages Scroll Area */}
+      <ScrollView
         ref={scrollViewRef}
-        style={styles.messageList}
+        style={styles.scrollArea}
         contentContainerStyle={[
-          styles.messageListContent,
-          messages.length === 0 && { flexGrow: 1, justifyContent: 'flex-start', paddingBottom: 60 }
+          styles.scrollContent,
+          !hasMessages && { flexGrow: 1, justifyContent: 'center' },
         ]}
         showsVerticalScrollIndicator={false}
       >
-        {ListHeaderComponent && <ListHeaderComponent />}
-        
-        {messages.map((msg, index) => {
-          const isUser = msg.sender === 'user';
-          return (
-            <View 
-              key={index} 
-              style={[
-                styles.messageRow,
-                isUser ? styles.messageRowUser : styles.messageRowBot
-              ]}
-            >
-              {!isUser && (
-                <View style={[styles.avatarBot, { backgroundColor: theme.primary + '20', borderColor: theme.primary + '50' }]}>
-                  <DCLogo size={20} theme={theme} />
-                </View>
-              )}
-              
-              <View style={[
-                styles.messageBubble,
-                isUser 
-                  ? [styles.userBubble, { backgroundColor: theme.cardBg, borderColor: theme.primary + '40' }] 
-                  : [styles.botBubble, { backgroundColor: theme.cardBg, borderColor: theme.border }]
-              ]}>
-                {isUser ? (
-                  <View style={{ width: '100%' }}>
-                    <View style={styles.userMetaRow}>
-                      <Text style={[styles.userMetaText, { color: theme.primary }]}>AGRICULTURAL OFFICER</Text>
+        <View style={styles.centeredColumn}>
+          {ListHeaderComponent && <ListHeaderComponent />}
+
+          {messages.map((msg, index) => {
+            const isUser = msg.sender === 'user';
+            return (
+              <View
+                key={index}
+                style={[
+                  styles.messageRow,
+                  isUser ? styles.messageRowUser : styles.messageRowBot,
+                ]}
+              >
+                {!isUser ? (
+                  /* Assistant message: plain text with markdown, no heavy card */
+                  <View style={styles.botMessageContainer}>
+                    <View style={styles.botHeaderRow}>
+                      <View
+                        style={[
+                          styles.avatarBot,
+                          { backgroundColor: theme.primary + '18', borderColor: theme.primary + '40' },
+                        ]}
+                      >
+                        <DCLogo size={18} theme={theme} />
+                      </View>
+                      <Text style={[styles.botName, { color: theme.text }]}>DigiCrop AI</Text>
+                      {msg.modelUsed && (
+                        <Text style={[styles.modelBadge, { color: theme.textSecondary }]}>
+                          {msg.modelUsed}
+                        </Text>
+                      )}
                     </View>
-                    <Text style={[styles.messageText, { color: theme.text }]}>
-                      {msg.text}
-                    </Text>
-                  </View>
-                ) : (
-                  <View style={{ width: '100%' }}>
-                    <MarkdownText content={msg.text} textColor={theme.text} theme={theme} />
-                    
-                    {/* Source Attribution Line */}
+
+                    <View style={styles.botBody}>
+                      <MarkdownText content={msg.text} textColor={theme.text} theme={theme} />
+                    </View>
+
+                    {/* Sources Line */}
                     {msg.sources && msg.sources.length > 0 && (
-                      <View style={[styles.sourceBadgeContainer, { borderTopColor: theme.border }]}>
+                      <View style={[styles.sourceLine, { borderTopColor: theme.border }]}>
                         <View style={styles.flexRow}>
-                          <Ionicons name="shield-checkmark-outline" size={13} color={theme.primary} style={{ marginRight: 4 }} />
-                          <Text style={[styles.sourceBadgeText, { color: theme.textSecondary }]}>
-                            Source: <Text style={{ fontWeight: '600', color: theme.text }}>{msg.sources.join(', ')}</Text>
+                          <Ionicons
+                            name="shield-checkmark-outline"
+                            size={13}
+                            color={theme.primary}
+                            style={{ marginRight: 4 }}
+                          />
+                          <Text style={[styles.sourceText, { color: theme.textSecondary }]}>
+                            Sources:{' '}
+                            <Text style={{ fontWeight: '600', color: theme.text }}>
+                              {msg.sources.join(', ')}
+                            </Text>
                           </Text>
                         </View>
                         <TouchableOpacity
@@ -194,16 +144,21 @@ export default function ChatInterface({
                               title: messages[index - 1] ? messages[index - 1].text : 'Saved Answer',
                               desc: msg.text,
                             });
-                            if (Platform.OS === 'web') alert('Answer saved! View it in the Saved tab.');
+                            if (Platform.OS === 'web') alert('Answer saved! View in the Saved tab.');
                           }}
                         >
-                          <Ionicons name="bookmark-outline" size={13} color={theme.primary} style={{ marginRight: 3 }} />
-                          <Text style={{ fontSize: 11, color: theme.primary, fontWeight: 'bold' }}>Save Answer</Text>
+                          <Ionicons
+                            name="bookmark-outline"
+                            size={12}
+                            color={theme.primary}
+                            style={{ marginRight: 3 }}
+                          />
+                          <Text style={[styles.saveBtnText, { color: theme.primary }]}>Save</Text>
                         </TouchableOpacity>
                       </View>
                     )}
 
-                    {/* Token Usage Muted Line */}
+                    {/* Token Usage Line */}
                     <View style={styles.tokenLineContainer}>
                       <Text style={[styles.tokenLineText, { color: theme.textSecondary }]}>
                         {(() => {
@@ -212,8 +167,18 @@ export default function ChatInterface({
                             return 'No model call · 0 tokens';
                           }
                           const q = u.questionTokens != null ? u.questionTokens : 'n/a';
-                          const p = u.promptTokens != null ? u.promptTokens : (u.inputTokens != null ? u.inputTokens : 'n/a');
-                          const o = (u.completionTokens != null ? u.completionTokens : (u.outputTokens != null ? u.outputTokens : 0)) + (u.thinkingTokens || 0);
+                          const p =
+                            u.promptTokens != null
+                              ? u.promptTokens
+                              : u.inputTokens != null
+                              ? u.inputTokens
+                              : 'n/a';
+                          const o =
+                            (u.completionTokens != null
+                              ? u.completionTokens
+                              : u.outputTokens != null
+                              ? u.outputTokens
+                              : 0) + (u.thinkingTokens || 0);
                           const tot = u.totalTokens != null ? u.totalTokens : 'n/a';
                           const lat = u.latencyMs ? `${(u.latencyMs / 1000).toFixed(1)}s` : 'n/a';
                           return `Question ${q} · Prompt ${p} · Output ${o} · Total ${tot} tokens · ${lat}`;
@@ -221,138 +186,152 @@ export default function ChatInterface({
                       </Text>
                     </View>
                   </View>
+                ) : (
+                  /* User message: subtle right-aligned bubble */
+                  <View
+                    style={[
+                      styles.userBubble,
+                      { backgroundColor: theme.cardBg, borderColor: theme.border },
+                    ]}
+                  >
+                    <Text style={[styles.userText, { color: theme.text }]}>{msg.text}</Text>
+                  </View>
                 )}
               </View>
+            );
+          })}
 
-              {isUser && (
-                <View style={[styles.avatarUser, { backgroundColor: theme.primary + '25', borderColor: theme.primary + '50' }]}>
-                  <Text style={[styles.avatarUserText, { color: theme.primary }]}>AO</Text>
+          {/* Loading state */}
+          {isLoading && (
+            <View style={[styles.messageRow, styles.messageRowBot]}>
+              <View style={styles.botMessageContainer}>
+                <View style={styles.botHeaderRow}>
+                  <View
+                    style={[
+                      styles.avatarBot,
+                      { backgroundColor: theme.primary + '18', borderColor: theme.primary + '40' },
+                    ]}
+                  >
+                    <DCLogo size={18} theme={theme} />
+                  </View>
+                  <Text style={[styles.botName, { color: theme.text }]}>DigiCrop AI</Text>
                 </View>
-              )}
-            </View>
-          );
-        })}
-
-        {/* Loading Indicator */}
-        {isLoading && (
-          <View style={[styles.messageRow, styles.messageRowBot]}>
-            <View style={[styles.avatarBot, { backgroundColor: theme.primary + '20', borderColor: theme.primary + '50' }]}>
-              <DCLogo size={20} theme={theme} />
-            </View>
-            <View style={[styles.messageBubble, styles.botBubble, { backgroundColor: theme.cardBg, borderColor: theme.border, paddingVertical: 12 }]}>
-              <View style={styles.flexRow}>
-                <ActivityIndicator size="small" color={theme.primary} style={{ marginRight: 10 }} />
-                <Text style={{ color: theme.textSecondary, fontSize: 13, fontStyle: 'italic' }}>
-                  DigiCrop AI is analyzing dataset context...
-                </Text>
+                <View style={[styles.flexRow, { paddingVertical: 8 }]}>
+                  <ActivityIndicator size="small" color={theme.primary} style={{ marginRight: 8 }} />
+                  <Text style={{ color: theme.textSecondary, fontSize: 13, fontStyle: 'italic' }}>
+                    Thinking and analyzing agronomic context...
+                  </Text>
+                </View>
               </View>
             </View>
-          </View>
-        )}
+          )}
+        </View>
       </ScrollView>
 
-      {/* Quick Queries Horizontal Bar */}
-      <View style={[styles.quickQuestionsContainer, { borderTopColor: theme.border, backgroundColor: theme.surface }]}>
-        <ScrollView 
-          horizontal 
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.quickQuestionsHorizontalContent}
-        >
-          <Text style={[styles.quickLabel, { color: theme.textSecondary }]}>QUICK QUERIES:</Text>
-          {quickQueries.slice(0, 5).map((qText, idx) => (
-            <TouchableOpacity
-              key={idx}
-              style={[
-                styles.quickQuestionPill, 
-                { backgroundColor: theme.cardBg, borderColor: theme.border }
-              ]}
-              onPress={() => onQuickQuestionPress && onQuickQuestionPress(qText)}
+      {/* Fixed Centered Composer Area */}
+      <View style={[styles.composerContainer, { backgroundColor: theme.background }]}>
+        <View style={styles.composerWrapper}>
+          {/* Compact Knowledge Dataset Selector Bar (Above composer) */}
+          <View style={styles.datasetChipsRow}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.datasetChipsScroll}
             >
-              <Text style={[styles.quickQuestionPillText, { color: theme.text }]}>
-                {qText}
-              </Text>
+              <Text style={[styles.contextLabel, { color: theme.textSecondary }]}>Context:</Text>
+              {datasetOptions.map((opt) => {
+                const isActive = selectedDatasetId === opt.id;
+                return (
+                  <TouchableOpacity
+                    key={opt.id}
+                    style={[
+                      styles.contextChip,
+                      {
+                        backgroundColor: isActive ? theme.primary : theme.surface,
+                        borderColor: isActive ? theme.primary : theme.border,
+                      },
+                    ]}
+                    onPress={() => onSelectDataset && onSelectDataset(opt.id)}
+                  >
+                    <Text
+                      style={[
+                        styles.contextChipText,
+                        {
+                          color: isActive ? '#FFFFFF' : theme.textSecondary,
+                          fontWeight: isActive ? '700' : '500',
+                        },
+                      ]}
+                    >
+                      {opt.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+
+          {/* Claude-style Centered Rounded Composer Box */}
+          <View
+            style={[
+              styles.composerBox,
+              {
+                backgroundColor: theme.cardBg,
+                borderColor: theme.border,
+              },
+            ]}
+          >
+            {/* Paperclip on the left (opens Add Dataset modal) */}
+            <TouchableOpacity
+              style={styles.attachBtn}
+              onPress={onOpenUploadModal}
+              title="Add or Attach Dataset (.csv, .md, .txt, images, PDF)"
+            >
+              <Feather name="paperclip" size={18} color={theme.textSecondary} />
             </TouchableOpacity>
-          ))}
-        </ScrollView>
-      </View>
 
-      {/* Input Box Bar */}
-      <View style={[
-        styles.inputContainer,
-        { 
-          backgroundColor: theme.surface,
-          borderTopColor: theme.border,
-          paddingBottom: Platform.OS === 'ios' ? Math.max(insets.bottom, SIZES.sm) : SIZES.sm
-        }
-      ]}>
-        <View style={[styles.inputWrapper, { backgroundColor: theme.background, borderColor: theme.border }]}>
-          <TextInput
-            style={[styles.input, { color: theme.text }]}
-            placeholder="Ask DigiCrop AI about your crops, farm datasets, NDVI, or soil..."
-            placeholderTextColor={theme.textSecondary}
-            value={inputText}
-            onChangeText={setInputText}
-            multiline
-            maxLength={1000}
-            onSubmitEditing={onSendMessage}
-          />
-          
-          <View style={styles.inputBottomRow}>
-            <View style={styles.flexRow}>
-              <Ionicons 
-                name={isGroundingActive ? "shield-checkmark" : "globe-outline"} 
-                size={13} 
-                color={isGroundingActive ? theme.primary : theme.textSecondary} 
-                style={{ marginRight: 4 }} 
+            {/* Auto-growing Textarea */}
+            <TextInput
+              ref={textareaRef}
+              style={[
+                styles.composerInput,
+                { color: theme.text },
+                Platform.OS === 'web' && { outlineStyle: 'none' },
+              ]}
+              placeholder="Ask anything about crops, soil, weather, or datasets..."
+              placeholderTextColor={theme.textSecondary}
+              value={inputText}
+              onChangeText={setInputText}
+              multiline
+              onKeyPress={Platform.OS === 'web' ? handleKeyDown : undefined}
+            />
+
+            {/* Round Send Button on the right */}
+            <TouchableOpacity
+              style={[
+                styles.roundSendBtn,
+                {
+                  backgroundColor:
+                    inputText.trim().length > 0 && !isLoading ? theme.primary : theme.border,
+                },
+              ]}
+              onPress={onSendMessage}
+              disabled={inputText.trim().length === 0 || isLoading}
+              title="Send (Enter)"
+            >
+              <Feather
+                name="arrow-up"
+                size={16}
+                color={inputText.trim().length > 0 && !isLoading ? '#FFFFFF' : theme.textSecondary}
               />
-              <Text style={[styles.groundingActiveText, { color: isGroundingActive ? theme.primary : theme.textSecondary }]}>
-                {isGroundingActive ? 'Grounding Active' : 'General knowledge mode'}
-              </Text>
-            </View>
-
-            <View style={styles.flexRow}>
-              <TouchableOpacity style={styles.attachButton} onPress={() => setModalVisible(true)} title="Attach Dataset">
-                <Feather name="paperclip" size={17} color={theme.textSecondary} />
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={[
-                  styles.sendButton, 
-                  { backgroundColor: inputText.trim().length > 0 && !isLoading ? theme.primary : theme.border }
-                ]}
-                onPress={onSendMessage}
-                disabled={inputText.trim().length === 0 || isLoading}
-              >
-                <Text style={styles.sendBtnText}>Analyze</Text>
-                <Feather name="send" size={13} color="#FFF" style={{ marginLeft: 4 }} />
-              </TouchableOpacity>
-            </View>
+            </TouchableOpacity>
           </View>
-        </View>
-      </View>
 
-      {/* Real Status Footer */}
-      {isDesktop && (
-        <View style={[styles.statusBar, { backgroundColor: theme.background, borderTopColor: theme.border }]}>
-          <View style={styles.flexRow}>
-            <View style={[styles.statusDotGreen, { backgroundColor: geminiConnectedStatus === false ? '#EF4444' : theme.primary }]} />
-            <Text style={[styles.statusFooterText, { color: theme.textSecondary }]}>
-              {geminiConnectedStatus === false ? 'AI Offline' : 'AI Connected'} • Datasets: {allDatasetsCount} loaded • Chunks: {totalChunksCount} indexed
-            </Text>
-          </View>
-          <Text style={[styles.statusFooterText, { color: theme.textSecondary }]}>
-            DigiCrop AI
+          {/* Bottom subtle hint */}
+          <Text style={[styles.composerHint, { color: theme.textSecondary }]}>
+            DigiCrop AI can make mistakes. Verify critical agronomy actions with certified advisers.
           </Text>
         </View>
-      )}
-
-      {/* Dataset Upload Modal */}
-      <UploadDatasetModal
-        visible={modalVisible}
-        onClose={() => setModalVisible(false)}
-        onDatasetAdded={handleDatasetAdded}
-        theme={theme}
-      />
+      </View>
     </KeyboardAvoidingView>
   );
 }
@@ -361,120 +340,76 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     width: '100%',
+    position: 'relative',
   },
-  flexRow: {
-    flexDirection: 'row',
+  scrollArea: {
+    flex: 1,
+    width: '100%',
+  },
+  scrollContent: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 160, // Space for the fixed composer
     alignItems: 'center',
   },
-  datasetSelectorBar: {
-    paddingVertical: 8,
-    paddingHorizontal: SIZES.md,
-    borderBottomWidth: 1,
+  centeredColumn: {
+    width: '100%',
+    maxWidth: 760, // Claude.ai ~760px column
   },
-  selectorHeaderRow: {
+  messageRow: {
+    marginBottom: 20,
+    width: '100%',
+  },
+  messageRowUser: {
+    alignItems: 'flex-end',
+  },
+  messageRowBot: {
+    alignItems: 'flex-start',
+  },
+  userBubble: {
+    maxWidth: '80%',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 18,
+    borderWidth: 1,
+  },
+  userText: {
+    fontSize: 14.5,
+    lineHeight: 22,
+  },
+  botMessageContainer: {
+    width: '100%',
+    paddingVertical: 2,
+  },
+  botHeaderRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 6,
   },
-  selectorLabel: {
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-  },
-  uploadBtn: {
-    flexDirection: 'row',
+  avatarBot: {
+    width: 26,
+    height: 26,
+    borderRadius: 6,
+    borderWidth: 1,
     alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 12,
-    borderWidth: 1,
-  },
-  uploadBtnText: {
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  datasetHorizontalScroll: {
-    paddingVertical: 2,
-  },
-  datasetPill: {
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: 16,
-    borderWidth: 1,
+    justifyContent: 'center',
     marginRight: 8,
   },
-  datasetPillText: {
-    fontSize: 12,
+  botName: {
+    fontSize: 13,
+    fontWeight: '700',
   },
-  messageList: {
-    flex: 1,
+  modelBadge: {
+    fontSize: 11,
+    marginLeft: 8,
+    opacity: 0.6,
   },
-  messageListContent: {
-    padding: SIZES.md,
-    paddingBottom: SIZES.xl,
+  botBody: {
+    width: '100%',
+    marginTop: 2,
+    marginBottom: 6,
   },
-  messageRow: {
-    flexDirection: 'row',
-    marginBottom: SIZES.md,
-    alignItems: 'flex-start',
-  },
-  messageRowUser: {
-    justifyContent: 'flex-end',
-  },
-  messageRowBot: {
-    justifyContent: 'flex-start',
-  },
-  avatarBot: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 10,
-    marginTop: 4,
-  },
-  avatarUser: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: 10,
-    marginTop: 4,
-  },
-  avatarUserText: {
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  messageBubble: {
-    maxWidth: '85%',
-    paddingHorizontal: SIZES.md,
-    paddingVertical: SIZES.sm,
-    borderRadius: 12,
-    borderWidth: 1,
-  },
-  userBubble: {
-    borderTopRightRadius: 4,
-  },
-  botBubble: {
-    borderTopLeftRadius: 4,
-  },
-  userMetaRow: {
-    marginBottom: 4,
-  },
-  userMetaText: {
-    fontSize: 10,
-    fontWeight: 'bold',
-    letterSpacing: 0.5,
-  },
-  messageText: {
-    fontSize: 14,
-    lineHeight: 22,
-  },
-  sourceBadgeContainer: {
+  sourceLine: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -482,108 +417,111 @@ const styles = StyleSheet.create({
     paddingTop: 6,
     borderTopWidth: 1,
   },
-  sourceBadgeText: {
-    fontSize: 11,
-  },
-  inputContainer: {
-    padding: SIZES.sm,
-    paddingHorizontal: SIZES.md,
-    borderTopWidth: 1,
-  },
-  inputWrapper: {
-    borderRadius: 12,
-    borderWidth: 1,
-    paddingHorizontal: SIZES.sm,
-    paddingTop: 8,
-    paddingBottom: 6,
-  },
-  input: {
-    fontSize: 14,
-    minHeight: 40,
-    maxHeight: 100,
-    paddingHorizontal: 4,
-  },
-  inputBottomRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 6,
-    paddingTop: 6,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.05)',
-  },
-  groundingActiveText: {
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  attachButton: {
-    padding: 6,
-    marginRight: 6,
-  },
-  sendButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 8,
-  },
-  sendBtnText: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    color: '#FFF',
-  },
-  quickQuestionsContainer: {
-    paddingVertical: 6,
-    borderTopWidth: 1,
-  },
-  quickQuestionsHorizontalContent: {
-    paddingHorizontal: SIZES.md,
+  flexRow: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  quickLabel: {
-    fontSize: 10,
-    fontWeight: 'bold',
-    marginRight: 8,
-  },
-  quickQuestionPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 16,
-    borderWidth: 1,
-    marginRight: 6,
-  },
-  quickQuestionPillText: {
-    fontSize: 11,
-  },
-  statusBar: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: SIZES.md,
-    paddingVertical: 6,
-    borderTopWidth: 1,
-  },
-  statusDotGreen: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    marginRight: 6,
-  },
-  statusFooterText: {
+  sourceText: {
     fontSize: 11,
   },
   saveBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  saveBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
   },
   tokenLineContainer: {
-    marginTop: 6,
-    paddingTop: 4,
+    marginTop: 4,
   },
   tokenLineText: {
     fontSize: 11,
-    lineHeight: 14,
-  }
+    opacity: 0.75,
+  },
+  composerContainer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: 16,
+    paddingBottom: Platform.OS === 'ios' ? 24 : 12,
+    paddingTop: 6,
+    alignItems: 'center',
+    zIndex: 20,
+  },
+  composerWrapper: {
+    width: '100%',
+    maxWidth: 760,
+  },
+  datasetChipsRow: {
+    marginBottom: 6,
+  },
+  datasetChipsScroll: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  contextLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    marginRight: 4,
+  },
+  contextChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  contextChipText: {
+    fontSize: 11.5,
+  },
+  composerBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    borderRadius: 22,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    minHeight: 52,
+    maxHeight: 180,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  attachBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 1,
+  },
+  composerInput: {
+    flex: 1,
+    fontSize: 14.5,
+    lineHeight: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    maxHeight: 140,
+  },
+  roundSendBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 2,
+    marginLeft: 6,
+  },
+  composerHint: {
+    textAlign: 'center',
+    fontSize: 10.5,
+    marginTop: 6,
+    opacity: 0.65,
+  },
 });
