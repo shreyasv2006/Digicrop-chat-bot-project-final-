@@ -102,6 +102,25 @@ export async function sendChatMessage({
 
   for (const endpoint of apiEndpoints) {
     try {
+      // Re-hydrate chunks for backend RAG
+      const db = await (await import('./datasetStore.js')).openDatasetDB();
+      const tx = db.transaction('chunks', 'readonly');
+      const chunkStore = tx.objectStore('chunks');
+      const hydratedCustom = [];
+      for (const ds of customDatasets) {
+        const fullDs = { ...ds };
+        const chunks = await new Promise(res => {
+          const idx = chunkStore.index('datasetId');
+          const req = idx.getAll(ds.id);
+          req.onsuccess = () => res(req.result || []);
+          req.onerror = () => res([]);
+        });
+        if (chunks.length > 0) {
+          fullDs.content = chunks.map(c => c.text).join('\n\n');
+        }
+        hydratedCustom.push(fullDs);
+      }
+
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
@@ -111,7 +130,7 @@ export async function sendChatMessage({
           message,
           selectedDatasetId,
           conversationHistory: trimmedHistory,
-          customDatasets,
+          customDatasets: hydratedCustom,
         }),
       });
 

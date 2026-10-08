@@ -5,11 +5,29 @@
  */
 
 import { datasetService } from './datasetService';
-import {
-  matchStandardFieldName,
-  parseCSVAccurate,
-  parseMarkdownTable,
-} from './datasetParser';
+import { detectFields } from './datasetIngest';
+
+/**
+ * Tolerant field classifier matching farm/telemetry attributes
+ */
+function matchStandardFieldName(rawKey) {
+  const norm = normalizeKey(rawKey);
+  if (!norm) return null;
+
+  if (['farmid', 'farm', 'field', 'plot', 'site', 'name'].includes(norm)) return 'farmId';
+  if (['timestamp', 'date', 'datetime', 'time'].includes(norm)) return 'date';
+  if (['crop', 'variety'].includes(norm)) return 'crop';
+  if (['ndvi'].includes(norm)) return 'ndvi';
+  if (['soilmoisture', 'moisture', 'sm', 'vwc'].includes(norm)) return 'soilMoisture';
+  if (['ph'].includes(norm)) return 'ph';
+  if (['ec', 'conductivity'].includes(norm)) return 'ec';
+  if (['temp', 'temperature'].includes(norm)) return 'temperature';
+  if (['humidity'].includes(norm)) return 'humidity';
+  if (['rain', 'rainfall', 'precip'].includes(norm)) return 'rainfall';
+  if (['wind'].includes(norm)) return 'windSpeed';
+  if (['alert', 'status', 'severity', 'risk'].includes(norm)) return 'alert';
+  return null;
+}
 
 /**
  * Normalizes string keys/headers for tolerant field matching
@@ -224,24 +242,8 @@ export function extractNormalizedRows(dataset) {
   let rawRows = [];
   if (Array.isArray(dataset.rowObjects) && dataset.rowObjects.length > 0) {
     rawRows = dataset.rowObjects;
-  } else {
-    const text = dataset.raw || dataset.content || '';
-    if (!text.trim()) return { rows: [], detectedFields: [], rawRowCount: 0 };
-
-    const csvRes = parseCSVAccurate(text);
-    if (csvRes && csvRes.rowObjects && csvRes.rowObjects.length > 0) {
-      rawRows = csvRes.rowObjects;
-    } else {
-      const mdRes = parseMarkdownTable(text);
-      if (mdRes && mdRes.rowObjects && mdRes.rowObjects.length > 0) {
-        rawRows = mdRes.rowObjects;
-      } else {
-        rawRows = parseCSVToRows(text);
-        if (rawRows.length === 0) rawRows = parseMDTableToRows(text);
-        if (rawRows.length === 0) rawRows = parseWhitespaceTableToRows(text);
-        if (rawRows.length === 0) rawRows = parseKVToRecords(text);
-      }
-    }
+  } else if (Array.isArray(dataset.rows) && dataset.rows.length > 0) {
+    rawRows = dataset.rows;
   }
 
   const detectedFieldSet = new Set();
