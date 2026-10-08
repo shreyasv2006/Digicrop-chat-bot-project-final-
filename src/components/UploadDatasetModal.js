@@ -8,13 +8,14 @@ function generateSafeDatasetId(name) {
   return `ds_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
 }
 import { alertDialog, showToast } from '../services/dialogService';
-
-import { readFileWithEncodingFallback, detectFormatByContent, parseRFC4180Batched, detectFields, chunkTableData } from '../services/datasetIngest';
+import { readFileWithEncodingFallback, universalParseBatched, detectFields, chunkTableData } from '../services/datasetIngest';
 import { saveDataset } from '../services/datasetStore';
 
 export default function UploadDatasetModal({ visible, onClose, theme }) {
   const [file, setFile] = useState(null);
   const [fileSizeFormatted, setFileSizeFormatted] = useState('');
+  const [preview, setPreview] = useState(null);
+  const [previewError, setPreviewError] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [progressMsg, setProgressMsg] = useState('');
   const [progressPercent, setProgressPercent] = useState(0);
@@ -25,6 +26,8 @@ export default function UploadDatasetModal({ visible, onClose, theme }) {
     if (visible) {
       setFile(null);
       setFileSizeFormatted('');
+      setPreview(null);
+      setPreviewError('');
       setIsProcessing(false);
       setProgressMsg('');
       setProgressPercent(0);
@@ -37,7 +40,7 @@ export default function UploadDatasetModal({ visible, onClose, theme }) {
     if (selected) validateAndSetFile(selected);
   };
 
-  const validateAndSetFile = (f) => {
+  const validateAndSetFile = async (f) => {
     const ext = f.name.toLowerCase().split('.').pop();
     if (!['csv', 'tsv', 'txt', 'md'].includes(ext)) {
       alertDialog({ title: 'Invalid File', message: 'Only .csv, .tsv, .txt, and .md files are supported.' });
@@ -49,6 +52,24 @@ export default function UploadDatasetModal({ visible, onClose, theme }) {
     }
     setFile(f);
     setFileSizeFormatted(f.size > 1024 * 1024 ? `${(f.size / (1024 * 1024)).toFixed(2)} MB` : `${Math.round(f.size / 1024)} KB`);
+    setPreview(null);
+    setPreviewError('Generating preview...');
+
+    try {
+      const slice = f.slice(0, 1024 * 1024); // max 1MB for preview
+      const buffer = await slice.arrayBuffer();
+      let text = new TextDecoder('utf-8').decode(buffer);
+      text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+      const lines = text.split('\n').slice(0, 200).join('\n');
+      
+      const { universalParseBatched } = await import('../services/datasetIngest');
+      const { type, delimiter, headers, rows, cols } = await universalParseBatched(lines);
+      
+      setPreview({ type, delimiter, headers, rows, cols, rawCount: rows.length });
+      setPreviewError('');
+    } catch (err) {
+      setPreviewError(err.message);
+    }
   };
 
   const handleDragOver = (e) => { e.preventDefault(); };
@@ -95,17 +116,12 @@ export default function UploadDatasetModal({ visible, onClose, theme }) {
       if (cancelRef.current.isCancelled) throw new Error('Canceled');
       setProgressPercent(10);
       
-      // 2. Detect
-      setProgressMsg('Detecting format...');
-      const { type, delimiter, cols } = detectFormatByContent(text);
-      if (type === 'Plain Text' || cols < 2) {
-        throw new Error('File does not appear to be a structured table (CSV/Markdown).');
-      }
+      // 2 & 3. Detect and Parse
+      setProgressMsg('Parsing dataset...');
+      const { universalParseBatched } = await import('../services/datasetIngest');
       
-      // 3. Parse
-      setProgressMsg(`Parsing ${type} (${cols} columns)...`);
       watchdog = setTimeout(() => { cancelRef.current.isCancelled = true; }, 60000); // 60s parse limit
-      const { headers, rows } = await parseRFC4180Batched(text, delimiter, (p) => {
+      const { type, delimiter, headers, rows, cols } = await universalParseBatched(text, (p) => {
         setProgressPercent(p.percent);
         setProgressMsg(`Parsing rows...`);
       }, cancelRef.current);
@@ -223,6 +239,40 @@ export default function UploadDatasetModal({ visible, onClose, theme }) {
                 )}
               </View>
             )}
+
+            {!isProcessing && file && previewError ? (
+              <View style={{ marginTop: 12, padding: 12, backgroundColor: '#FEF2F2', borderRadius: 8, borderColor: '#FCA5A5', borderWidth: 1 }}>
+                <Text style={{ color: '#DC2626', fontSize: 14 }}>{previewError}</Text>
+              </View>
+            ) : !isProcessing && file && preview ? (
+              <View style={{ marginTop: 12, padding: 12, backgroundColor: theme.surface, borderRadius: 8, borderColor: theme.border, borderWidth: 1 }}>
+                <Text style={{ color: theme.text, fontSize: 14, fontWeight: 'bold', marginBottom: 4 }}>
+                  Detected Format: {preview.type} {preview.cols > 0 ? `(${preview.cols} columns)` : ''}
+                </Text>
+                <View style={{ maxHeight: 150, overflow: 'auto', backgroundColor: theme.background, padding: 8, borderRadius: 4 }}>
+                  {preview.type === 'Plain Text' ? (
+                    <Text style={{ color: theme.textSecondary, fontSize: 12, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }}>
+                      {preview.rows.map(r => r.text).join('\n\n').split('\n').slice(0, 8).join('\n')}
+                    </Text>
+                  ) : (
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, color: theme.textSecondary, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }}>
+                      <thead>
+                        <tr>
+                          {preview.headers.map((h, i) => <th key={i} style={{ textAlign: 'left', borderBottom: `1px solid ${theme.border}`, padding: '4px' }}>{h}</th>)}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {preview.rows.slice(0, 5).map((r, i) => (
+                          <tr key={i}>
+                            {preview.headers.map((h, j) => <td key={j} style={{ padding: '4px', borderBottom: `1px solid ${theme.border}22` }}>{r[h]}</td>)}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </View>
+              </View>
+            ) : null}
 
             {isProcessing && (
               <View style={styles.progressContainer}>

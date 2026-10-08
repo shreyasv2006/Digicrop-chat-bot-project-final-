@@ -11,71 +11,38 @@ export async function readFileWithEncodingFallback(file) {
   let text = new TextDecoder('utf-8').decode(buffer);
   
   const badCharCount = (text.match(/\uFFFD/g) || []).length;
+  // Binary check: lots of NUL or non-printable ASCII
+  const nulCount = (text.match(/\x00/g) || []).length;
+  if (nulCount > text.length * 0.01) {
+    throw new Error('File appears to be binary.');
+  }
+
   if (badCharCount > text.length * 0.05 || text.charCodeAt(0) === 0xFEFF || text.charCodeAt(0) === 0xFFFE) {
-    // Try utf-16le
     text = new TextDecoder('utf-16le').decode(buffer);
     if ((text.match(/\uFFFD/g) || []).length > text.length * 0.05) {
       text = new TextDecoder('windows-1252').decode(buffer);
     }
   }
 
-  // Strip BOM
   if (text.charCodeAt(0) === 0xFEFF) {
     text = text.slice(1);
   }
   
-  // Normalize newlines to \n
-  return text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  if (text.trim().length === 0) {
+    throw new Error('File is empty or contains only whitespace.');
+  }
+
+  return text;
 }
 
 export function detectFormatByContent(text) {
-  // Strip YAML frontmatter
-  let clean = text;
-  if (clean.startsWith('---')) {
-    const end = clean.indexOf('---', 3);
-    if (end !== -1) clean = clean.substring(end + 3);
-  }
-  
-  // Skip titles and empty lines
-  const lines = clean.split('\n').map(l => l.trim()).filter(l => l.length > 0 && !l.startsWith('#')).slice(0, 100);
-  if (lines.length === 0) return { type: 'Text', delimiter: null, cols: 0 };
-  
-  const candidates = [',', ';', '\t', '|'];
-  for (const delim of candidates) {
-    // Only count lines that actually contain the delimiter
-    const linesWithDelim = lines.filter(l => l.includes(delim));
-    if (linesWithDelim.length === 0) continue;
-
-    const counts = linesWithDelim.map(l => l.split(delim).length);
-    const mostCommon = counts.reduce((acc, val) => {
-      acc[val] = (acc[val] || 0) + 1;
-      return acc;
-    }, {});
-    
-    let maxCount = 0;
-    let maxCols = 0;
-    for (const [cols, freq] of Object.entries(mostCommon)) {
-      if (freq > maxCount) {
-        maxCount = freq;
-        maxCols = parseInt(cols);
-      }
-    }
-    
-    if (maxCols >= 2 && maxCount >= Math.min(3, linesWithDelim.length * 0.5)) {
-      if (delim === '|') {
-        return { type: 'Markdown Document', delimiter: '|', cols: maxCols };
-      }
-      return { type: 'Structured CSV Telemetry', delimiter: delim, cols: maxCols };
-    }
-  }
-  
+  // We do the detection inside universalParseBatched now. This is a stub for backwards compatibility,
+  // returning plain text as a fallback if called early.
   return { type: 'Plain Text', delimiter: null, cols: 0 };
 }
 
-export async function parseRFC4180Batched(text, delimiter, onProgress, cancelToken) {
-  let records = [];
-  
-  // Strip YAML frontmatter
+function cleanMarkdownFences(text) {
   let clean = text;
   if (clean.startsWith('---')) {
     const end = clean.indexOf('---', 3);
@@ -83,193 +50,222 @@ export async function parseRFC4180Batched(text, delimiter, onProgress, cancelTok
   }
   
   const lines = clean.split('\n');
+  return lines.filter(l => !l.trim().startsWith('```')).join('\n');
+}
+
+export async function universalParseBatched(text, onProgress, cancelToken) {
+  const clean = cleanMarkdownFences(text);
+  const lines = clean.split('\n');
   const maxLines = lines.length;
   
-  let batchSize = 2000;
-  let batchRecords = [];
+  // 1. Check for tabular block
+  // We scan for a block of >= 3 lines that share a delimiter
+  const candidates = [',', ';', '\t', '|'];
+  let bestTable = null;
   
-  let i = 0;
-  while (i < maxLines) {
-    if (cancelToken && cancelToken.isCancelled) throw new Error('Canceled');
-    let progressMade = false;
-    let startI = i;
-
-    for (let j = 0; j < batchSize && i < maxLines; j++, i++) {
-      let line = lines[i];
-      if (i === 0 && (line.startsWith('#') || line.startsWith('---'))) continue;
-      if (line.trim().length === 0) continue;
+  for (const delim of candidates) {
+    let currentBlock = [];
+    let currentCols = 0;
+    
+    for (let i = 0; i < maxLines; i++) {
+      const l = lines[i].trim();
+      if (l.length === 0 || l.startsWith('#') || l.startsWith('//') || l.startsWith('>')) {
+        continue; // ignore blank/comment
+      }
       
-      let row;
-      if (!line.includes('"')) {
-        row = line.split(delimiter);
-      } else {
-        row = [];
-        let cur = '';
-        let inQuotes = false;
-        
-        while (i < maxLines) {
-          const l = lines[i];
-          const lLen = l.length;
-          let k = 0;
-          if (i > startI + j) {
-            cur += '\n'; // it was a multiline
-          }
-          
-          for (; k < lLen; k++) {
-            const char = l[k];
-            if (char === '"') {
-              if (inQuotes && k + 1 < lLen && l[k + 1] === '"') {
-                cur += '"';
-                k++;
-              } else {
-                inQuotes = !inQuotes;
-              }
-            } else if (char === delimiter && !inQuotes) {
-              row.push(cur);
-              cur = '';
-            } else {
-              cur += char;
+      const parts = l.split(delim);
+      const cols = delim === '|' ? parts.filter(p => p.trim().length > 0).length : parts.length;
+      
+      if (cols >= 2) {
+        if (currentBlock.length === 0) {
+          currentBlock.push({ index: i, line: l });
+          currentCols = cols;
+        } else if (cols === currentCols || (delim === '|' && Math.abs(cols - currentCols) <= 1)) {
+          currentBlock.push({ index: i, line: l });
+        } else {
+          // If mismatch, check if previous block was valid
+          if (currentBlock.length >= 3) {
+            if (!bestTable || currentBlock.length > bestTable.lines.length) {
+              bestTable = { delim, lines: currentBlock, cols: currentCols };
             }
           }
-          
-          if (inQuotes) {
-            i++; // read next line
-            if (i >= maxLines) break;
-          } else {
-            row.push(cur);
-            break;
+          currentBlock = [{ index: i, line: l }];
+          currentCols = cols;
+        }
+      } else {
+        if (currentBlock.length >= 3) {
+          if (!bestTable || currentBlock.length > bestTable.lines.length) {
+            bestTable = { delim, lines: currentBlock, cols: currentCols };
+          }
+        }
+        currentBlock = [];
+      }
+    }
+    
+    if (currentBlock.length >= 3) {
+      if (!bestTable || currentBlock.length > bestTable.lines.length) {
+        bestTable = { delim, lines: currentBlock, cols: currentCols };
+      }
+    }
+  }
+  
+  let records = [];
+  let headers = [];
+  let formatType = 'Plain Text';
+  let delimiter = null;
+  
+  if (bestTable) {
+    // Parse as table
+    delimiter = bestTable.delim;
+    formatType = delimiter === '|' ? 'Markdown Document' : 'Structured CSV Telemetry';
+    
+    // Find header
+    let headerLine = bestTable.lines[0].line;
+    let dataStartIndex = 1;
+    
+    // Process markdown separator
+    if (delimiter === '|' && bestTable.lines.length > 1 && /^[\s|:-]+$/.test(bestTable.lines[1].line)) {
+      dataStartIndex = 2;
+    }
+    
+    const parseRow = (lineStr, delim) => {
+      let row = lineStr.split(delim);
+      if (delim === '|') {
+        if (row.length > 0 && row[0].trim() === '') row.shift();
+        if (row.length > 0 && row[row.length - 1].trim() === '') row.pop();
+      }
+      return row.map(c => c.trim().replace(/^"|"$/g, '')); // strip outer quotes and spaces
+    };
+    
+    headers = parseRow(headerLine, delimiter).map((h, i) => h || `col${i}`);
+    
+    for (let i = dataStartIndex; i < bestTable.lines.length; i++) {
+      if (i % 2000 === 0) {
+        if (cancelToken && cancelToken.isCancelled) throw new Error('Canceled');
+        if (onProgress) onProgress({ percent: 10 + Math.floor((i / bestTable.lines.length) * 40) });
+        await new Promise(r => setTimeout(r, 0));
+      }
+      const r = parseRow(bestTable.lines[i].line, delimiter);
+      if (r.length === 0 || r.every(x => x === '')) continue;
+      
+      const obj = {};
+      headers.forEach((h, idx) => {
+        obj[h] = r[idx] !== undefined ? r[idx] : '';
+      });
+      records.push(obj);
+    }
+  } else {
+    // Check for Key-Value pairs
+    const kvRegex = /^[-*]?\s*\*\*?([^\*:=]+)\*\*?[:=]\s*(.+)$/;
+    let currentRecord = {};
+    let hasKV = false;
+    
+    for (let i = 0; i < maxLines; i++) {
+      const l = lines[i].trim();
+      if (l.length === 0 || l.startsWith('#')) {
+        if (Object.keys(currentRecord).length > 0) {
+          records.push(currentRecord);
+          currentRecord = {};
+        }
+      } else {
+        const match = l.match(kvRegex);
+        if (match) {
+          hasKV = true;
+          currentRecord[match[1].trim()] = match[2].trim();
+        }
+      }
+    }
+    if (Object.keys(currentRecord).length > 0) records.push(currentRecord);
+    
+    if (hasKV && records.length > 0) {
+      formatType = 'Records';
+      const allKeys = new Set();
+      records.forEach(r => Object.keys(r).forEach(k => allKeys.add(k)));
+      headers = Array.from(allKeys);
+      // Ensure all rows have all keys
+      records = records.map(r => {
+        const obj = {};
+        headers.forEach(h => obj[h] = r[h] || '');
+        return obj;
+      });
+    } else {
+      // Plain text fallback
+      formatType = 'Plain Text';
+      headers = ['text'];
+      records = [];
+      let currentPara = [];
+      for (let i = 0; i < maxLines; i++) {
+        const l = lines[i].trim();
+        if (l.length === 0) {
+          if (currentPara.length > 0) {
+            records.push({ text: currentPara.join('\n') });
+            currentPara = [];
+          }
+        } else {
+          currentPara.push(l);
+          if (currentPara.join('\n').length > 1500) {
+            records.push({ text: currentPara.join('\n') });
+            currentPara = [];
           }
         }
       }
-      
-      if (row.length > 1 || (row.length === 1 && row[0].trim().length > 0)) {
-        if (delimiter === '|' && row.length >= 2 && row[0].trim() === '' && row[row.length-1].trim() === '') {
-          row = row.slice(1, -1);
-        }
-        const trimmed = row.map(c => c.trim());
-        if (!(delimiter === '|' && trimmed.every(c => /^[\s-:]+$/.test(c)))) {
-          batchRecords.push(trimmed);
-        }
-      }
-      progressMade = true;
+      if (currentPara.length > 0) records.push({ text: currentPara.join('\n') });
     }
-    
-    if (!progressMade && i === startI) {
-      throw new Error('Parser stalled on line ' + i);
-    }
-    
-    records = records.concat(batchRecords);
-    batchRecords = [];
-    
-    if (onProgress) onProgress({ percent: Math.min(60, 10 + Math.floor((i / maxLines) * 50)) });
-    await new Promise(r => setTimeout(r, 0));
   }
   
-  if (records.length <= 1) return { headers: [], rows: [] };
-  
-  let rawHeaders = records[0].map(h => h.trim());
-  // deduplicate empty
-  rawHeaders = rawHeaders.map((h, idx) => h || `Column${idx + 1}`);
-  const hSet = new Set();
-  const headers = rawHeaders.map(h => {
-    let clean = h;
-    let count = 1;
-    while (hSet.has(clean)) {
-      clean = `${h}_${count}`;
-      count++;
-    }
-    hSet.add(clean);
-    return clean;
-  });
-  
-  // padding ragged
-  const rows = [];
-  for (let k = 1; k < records.length; k++) {
-    const r = records[k];
-    if (r.length === headers.length && r.every(v => v.includes('---'))) continue; // markdown table separator
-    
-    const obj = {};
-    for (let col = 0; col < headers.length; col++) {
-      obj[headers[col]] = col < r.length ? r[col] : '';
-    }
-    rows.push(obj);
-  }
-  
-  return { headers, rows };
+  if (onProgress) onProgress({ percent: 50 });
+  return {
+    type: formatType,
+    delimiter,
+    headers,
+    rows: records,
+    cols: headers.length
+  };
 }
 
 export function detectFields(headers) {
-  const fields = [];
-  const joined = headers.join(' ').toLowerCase();
+  const detected = [];
+  const hLower = headers.map(h => String(h).toLowerCase().replace(/[^a-z0-9]/g, ''));
   
-  if (joined.match(/farm|field|plot|site/)) fields.push('farm');
-  if (joined.match(/crop|variety/)) fields.push('crop');
-  if (joined.match(/date|timestamp|time/)) fields.push('date');
-  if (joined.match(/ndvi|savi/)) fields.push('ndvi');
-  if (joined.match(/soil.*moisture|vwc/)) fields.push('soil moisture');
-  if (joined.match(/ph/)) fields.push('pH');
-  if (joined.match(/ec|conductivity/)) fields.push('EC');
-  if (joined.match(/temp/)) fields.push('temperature');
-  if (joined.match(/humid/)) fields.push('humidity');
-  if (joined.match(/rain|precip/)) fields.push('rainfall');
-  if (joined.match(/wind/)) fields.push('wind');
-  if (joined.match(/alert|severity|risk/)) fields.push('alert');
+  if (hLower.some(h => ['farmid', 'farm', 'field', 'plot', 'name'].includes(h))) detected.push('farm');
+  if (hLower.some(h => ['date', 'timestamp', 'datetime', 'time'].includes(h))) detected.push('date');
+  if (hLower.some(h => ['crop', 'variety'].includes(h))) detected.push('crop');
+  if (hLower.some(h => h.includes('ndvi'))) detected.push('ndvi');
+  if (hLower.some(h => ['soilmoisture', 'moisture', 'sm', 'vwc'].includes(h))) detected.push('soil moisture');
+  if (hLower.some(h => ['ph'].includes(h))) detected.push('pH');
+  if (hLower.some(h => ['ec', 'conductivity'].includes(h))) detected.push('EC');
+  if (hLower.some(h => h.includes('temp'))) detected.push('temperature');
+  if (hLower.some(h => h.includes('humid'))) detected.push('humidity');
+  if (hLower.some(h => h.includes('rain'))) detected.push('rainfall');
+  if (hLower.some(h => ['alert', 'status', 'severity', 'risk'].includes(h))) detected.push('alert');
   
-  return fields;
+  return detected.length > 0 ? detected : headers.slice(0, 5);
 }
 
-export async function chunkTableData(datasetId, headers, rows, onProgress, cancelToken) {
+export async function chunkTableData(dsId, headers, rows, onProgress, cancelToken) {
   const chunks = [];
-  const rowsPerChunk = 50;
-  const totalRows = rows.length;
-  const maxChunks = 20000;
+  const CHUNK_SIZE = 50;
   
-  let chunkCount = 0;
-  for (let i = 0; i < totalRows; i += rowsPerChunk) {
+  for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
     if (cancelToken && cancelToken.isCancelled) throw new Error('Canceled');
+    const batch = rows.slice(i, i + CHUNK_SIZE);
     
-    if (chunkCount >= maxChunks) {
-      console.warn('Max chunks reached, truncating dataset');
-      break;
-    }
-    
-    const slice = rows.slice(i, i + rowsPerChunk);
-    let chunkText = `Headers: [${headers.join(', ')}]\n\n`;
-    
-    const lines = slice.map((row, rIdx) => {
-      const rowNum = i + rIdx + 1;
-      const pairs = headers.map(h => `${h}: ${row[h]}`).join(' | ');
-      return `Row ${rowNum}: ${pairs}`;
+    const lines = batch.map(row => {
+      return headers.map(h => `${h}: ${row[h] || ''}`).join(', ');
     });
-    
-    // basic splitting of lines if they exceed 1500 chars roughly
-    let currentPara = '';
-    const paras = [];
-    for (const l of lines) {
-      if (currentPara.length + l.length > 1500) {
-        paras.push(currentPara);
-        currentPara = l;
-      } else {
-        currentPara += (currentPara ? '\n' : '') + l;
-      }
-    }
-    if (currentPara) paras.push(currentPara);
-    
-    chunkText += paras.join('\n\n');
     
     chunks.push({
-      id: `${datasetId}_chunk_${chunkCount}`,
-      datasetId,
-      chunkIndex: chunkCount,
-      text: chunkText
+      id: `${dsId}_chunk_${i}`,
+      datasetId: dsId,
+      text: lines.join('\n')
     });
     
-    chunkCount++;
-    if (chunkCount % 100 === 0) {
-      if (onProgress) onProgress({ percent: Math.min(95, 60 + Math.floor((i / totalRows) * 35)) });
+    if (i % 2000 === 0 && onProgress) {
+      onProgress({ percent: 50 + Math.floor((i / rows.length) * 50) });
       await new Promise(r => setTimeout(r, 0));
     }
   }
   
+  if (onProgress) onProgress({ percent: 100 });
   return chunks;
 }
